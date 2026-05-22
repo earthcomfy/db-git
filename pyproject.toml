@@ -1,0 +1,83 @@
+[project]
+name = "git-db"
+version = "0.1.0"
+description = "Snapshot and restore local databases when switching git branches"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Hana Belay" }]
+keywords = [
+    "git",
+    "database",
+    "postgresql",
+    "snapshot",
+    "branching",
+    "migrations",
+    "developer-tools",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+dependencies = [
+    "typer>=0.24.1",
+    "rich>=14.0.0",
+    "tomlkit>=0.14.0",
+    "psycopg[binary]>=3.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.0",
+    "nox>=2024.10.9",
+    "pre-commit>=4.0.0",
+    "pytest>=9.0.0",
+    "pytest-xdist>=3.6.1",
+    "ruff>=0.15.0",
+    "testcontainers[postgres]>=4.0",
+]
+
+[project.scripts]
+git-db = "git_db.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/earthcomfy/git-db"
+Repository = "https://github.com/earthcomfy/git-db"
+Issues = "https://github.com/earthcomfy/git-db/issues"
+Changelog = "https://github.com/earthcomfy/git-db/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/git_db"]
+
+[tool.pytest.ini_options]
+markers = ["integration: integration tests", "e2e: end-to-end tests"]
+
+[[tool.mypy.overrides]]
+module = "testcontainers.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
