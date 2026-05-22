@@ -30,7 +30,7 @@ def git_repo(tmp_path: Path) -> Path:
     Initialize a git repo with an initial commit.
     """
     subprocess.run(
-        ["git", "init"],
+        ["git", "init", "-b", "main"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
