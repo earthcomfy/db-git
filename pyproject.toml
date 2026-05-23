@@ -1,7 +1,7 @@
 [project]
 name = "git-db"
 version = "0.1.0"
-description = "Snapshot and restore local databases when switching git branches"
+description = "Keep your database in sync with your git branches."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

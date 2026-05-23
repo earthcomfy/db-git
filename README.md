@@ -1,5 +1,9 @@
 # git-db
 
+[![CI](https://github.com/earthcomfy/git-db/actions/workflows/test.yml/badge.svg)](https://github.com/earthcomfy/git-db/actions/workflows/test.yml)
+[![Python](https://img.shields.io/pypi/pyversions/git-db.svg)](https://pypi.org/project/git-db/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Keep your database in sync with your git branches.
 
 `git-db` is a developer tool for projects where database state follows code
@@ -87,8 +91,6 @@ Use this when:
 - You want branch databases to persist independently
 - You prefer creating new databases over repeatedly restoring one shared
   database
-
-Typical commands:
 
 ## Choosing a Strategy
 
