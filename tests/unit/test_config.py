@@ -6,7 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from git_db.config import GitDbConfig, _validate_config, load_config, write_config
+from git_db.config import (
+    GitDbConfig,
+    _validate_config,
+    ensure_config_ignored,
+    load_config,
+    write_config,
+)
 from git_db.errors import ConfigError
 
 
@@ -173,3 +179,29 @@ class TestConfig:
         write_config(tmp_path, {"mode": "per-branch"})
         content = (tmp_path / ".git-db.toml").read_text()
         assert "# How git-db manages databases" in content
+
+    def test_ensure_config_ignored_creates_gitignore(self, tmp_path: Path):
+        changed = ensure_config_ignored(tmp_path)
+
+        assert changed is True
+        assert (tmp_path / ".gitignore").read_text() == (
+            "# Local git-db configuration\n.git-db.toml\n"
+        )
+
+    def test_ensure_config_ignored_appends_entry(self, tmp_path: Path):
+        (tmp_path / ".gitignore").write_text(".venv\n")
+
+        changed = ensure_config_ignored(tmp_path)
+
+        assert changed is True
+        assert (tmp_path / ".gitignore").read_text() == (
+            ".venv\n\n# Local git-db configuration\n.git-db.toml\n"
+        )
+
+    def test_ensure_config_ignored_does_not_duplicate_entry(self, tmp_path: Path):
+        (tmp_path / ".gitignore").write_text(".venv\n.git-db.toml\n")
+
+        changed = ensure_config_ignored(tmp_path)
+
+        assert changed is False
+        assert (tmp_path / ".gitignore").read_text().count(".git-db.toml") == 1

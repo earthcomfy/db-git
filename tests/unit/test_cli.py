@@ -101,6 +101,7 @@ class TestInit:
 
             hook = git_repo / ".git" / "hooks" / "post-checkout"
             assert hook.exists()
+            assert ".git-db.toml" in (git_repo / ".gitignore").read_text()
         finally:
             os.chdir(old_cwd)
 
@@ -135,6 +136,7 @@ class TestInit:
             assert "Could not connect to database" in result.output
             assert "initialized" not in result.output
             assert not (git_repo / ".git" / "hooks" / "post-checkout").exists()
+            assert not (git_repo / ".gitignore").exists()
         finally:
             os.chdir(old_cwd)
 

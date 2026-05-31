@@ -10,6 +10,7 @@ from rich.panel import Panel
 from git_db.backends import get_backend
 from git_db.backends.postgresql.backend import PgPermissions
 from git_db.config import (
+    ensure_config_ignored,
     find_project_root,
     load_config,
     load_dotfile_config,
@@ -224,6 +225,8 @@ def init(
 
         write_config(project_root, config_updates)
         console.print("[dim]Configuration saved to .git-db.toml[/]\n")
+        if ensure_config_ignored(project_root):
+            console.print("[dim]Added .git-db.toml to .gitignore[/]\n")
 
         hook_status = "[dim]skipped[/]"
         if install_hook_flag:

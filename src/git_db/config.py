@@ -220,3 +220,24 @@ def write_config(project_root: Path, updates: dict[str, object]) -> None:
         doc[key] = value
 
     dotfile.write_text(tomlkit.dumps(doc))
+
+
+def ensure_config_ignored(project_root: Path) -> bool:
+    """
+    Ensure the local git-db config file is ignored by git.
+    """
+    gitignore = project_root / ".gitignore"
+    entry = ".git-db.toml"
+
+    if gitignore.exists():
+        lines = gitignore.read_text().splitlines()
+        if entry in {line.strip() for line in lines}:
+            return False
+        needs_leading_newline = bool(lines) and lines[-1] != ""
+        with gitignore.open("a") as f:
+            if needs_leading_newline:
+                f.write("\n")
+            f.write(f"# Local git-db configuration\n{entry}\n")
+    else:
+        gitignore.write_text(f"# Local git-db configuration\n{entry}\n")
+    return True
