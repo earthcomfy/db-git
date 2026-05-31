@@ -173,13 +173,7 @@ def status(
             return
 
         snapshots = list_snapshots(config.snapshot_dir)
-        has_current = (
-            has_snapshot(config.snapshot_dir, current_branch)
-            if current_branch != "(detached)"
-            else False
-        )
-
-        current_status = "[green]yes[/]" if has_current else "[dim]no snapshot[/]"
+        current_status = _shared_current_status(config, backend, current_branch)
         enabled_status = check_enabled()
         summary = (
             f"  Branch:     [cyan]{current_branch}[/]\n"
@@ -392,3 +386,29 @@ def _shared_snapshot_status(
         )
     except Exception:
         return "[yellow]unknown[/]"
+
+
+def _shared_current_status(
+    config: GitDbConfig,
+    backend: DatabaseBackend,
+    branch: str,
+) -> str:
+    """
+    Return whether the current branch has usable shared snapshot storage.
+    """
+    if branch == "(detached)" or not has_snapshot(config.snapshot_dir, branch):
+        return "[dim]no snapshot[/]"
+
+    meta = next(
+        (s for s in list_snapshots(config.snapshot_dir) if s.branch == branch),
+        None,
+    )
+    if meta is None:
+        return "[dim]no snapshot[/]"
+
+    status = _shared_snapshot_status(config, backend, branch, meta.strategy)
+    if "exists" in status:
+        return "[green]yes[/]"
+    if "missing" in status:
+        return "[red]missing[/]"
+    return "[yellow]unknown[/]"

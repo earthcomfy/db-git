@@ -402,6 +402,54 @@ class TestStatus:
         finally:
             os.chdir(old_cwd)
 
+    def test_shared_mode_current_snapshot_exists(self, git_repo, setup_with_snapshots):
+        setup_with_snapshots(git_repo, ["main"])
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            with (
+                patch.object(PostgresqlBackend, "get_engine_version", return_value=16),
+                patch.object(PostgresqlBackend, "database_exists", return_value=True),
+            ):
+                result = runner.invoke(app, ["status"])
+
+            assert result.exit_code == 0
+            assert "Current:" in result.output
+            assert "yes" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_shared_mode_current_snapshot_missing(self, git_repo, setup_with_snapshots):
+        setup_with_snapshots(git_repo, ["main"])
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            with (
+                patch.object(PostgresqlBackend, "get_engine_version", return_value=16),
+                patch.object(PostgresqlBackend, "database_exists", return_value=False),
+            ):
+                result = runner.invoke(app, ["status"])
+
+            assert result.exit_code == 0
+            assert "Current:" in result.output
+            assert "missing" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_shared_mode_current_snapshot_absent(self, git_repo, setup_config):
+        setup_config(git_repo)
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            with patch.object(PostgresqlBackend, "get_engine_version", return_value=16):
+                result = runner.invoke(app, ["status"])
+
+            assert result.exit_code == 0
+            assert "Current:" in result.output
+            assert "no snapshot" in result.output
+        finally:
+            os.chdir(old_cwd)
+
     def test_per_branch_mode(self, git_repo, setup_config):
         setup_config(git_repo, mode="per-branch")
         old_cwd = os.getcwd()
