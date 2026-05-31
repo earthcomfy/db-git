@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -129,22 +131,14 @@ def install_hook(git_dir: Path) -> None:
     """
     hooks_dir = git_dir / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    hook_path = hooks_dir / "post-checkout"
+    git_db_executable = _resolve_git_db_executable()
 
     try:
-        if hook_path.exists():
-            content = hook_path.read_text()
-            if HOOK_IDENTIFIER in content:
-                pass
-            else:
-                legacy_path = hooks_dir / "post-checkout.legacy"
-                hook_path.rename(legacy_path)
-                console.print(
-                    "Existing post-checkout hook preserved as post-checkout.legacy"
-                )
-
-        hook_path.write_text(render_hook_script())
-        os.chmod(hook_path, 0o755)
+        _write_managed_hook(
+            hooks_dir,
+            "post-checkout",
+            render_hook_script(git_db_executable),
+        )
     except OSError as e:
         raise HookError(f"Failed to install hook: {e}") from e
 
@@ -327,3 +321,29 @@ def _handle_per_branch_checkout(
         return
 
     console.print(f"[dim]Branch database:[/] {target_db}")
+
+
+def _resolve_git_db_executable() -> str:
+    """
+    Return the executable path the hook should call.
+    """
+    current = Path(sys.argv[0])
+    if current.name == "git-db" and current.exists():
+        return str(current.resolve())
+    found = shutil.which("git-db")
+    if found:
+        return str(Path(found).resolve())
+    return ""
+
+
+def _write_managed_hook(hooks_dir: Path, hook_name: str, content: str) -> None:
+    hook_path = hooks_dir / hook_name
+    if hook_path.exists():
+        existing = hook_path.read_text()
+        if HOOK_IDENTIFIER not in existing:
+            legacy_path = hooks_dir / f"{hook_name}.legacy"
+            hook_path.rename(legacy_path)
+            console.print(f"Existing {hook_name} hook preserved as {hook_name}.legacy")
+
+    hook_path.write_text(content)
+    os.chmod(hook_path, 0o755)

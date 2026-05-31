@@ -6,7 +6,7 @@ from rich.console import Console
 app = typer.Typer(
     name="git-db",
     help=(
-        "Snapshot and restore databases when switching git branches. "
+        "Keep your database in sync with your git branches. "
         "Currently supports PostgreSQL."
     ),
     rich_markup_mode="rich",

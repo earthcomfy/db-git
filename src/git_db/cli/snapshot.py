@@ -50,6 +50,8 @@ def save(
     except GitDbError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
     except Exception as e:
         if debug_enabled():
             raise
@@ -101,6 +103,8 @@ def restore(
     except GitDbError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
     except Exception as e:
         if debug_enabled():
             raise

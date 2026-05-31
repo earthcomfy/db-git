@@ -9,11 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from git_db.backends.postgresql.backend import PostgresqlBackend
+from git_db.backends.postgresql.backend import PgPermissions, PostgresqlBackend
 from git_db.backends.postgresql.branch_db import PostgresBranchDbManager
 from git_db.backends.postgresql.template import TemplateStrategy
 from git_db.cli import app
-from git_db.errors import SnapshotError
+from git_db.errors import DatabaseError, SnapshotError
 from git_db.hook_script import render_hook_script
 from git_db.state import record_branch_db
 from git_db.storage import has_snapshot, make_metadata, write_metadata
@@ -75,6 +75,19 @@ def setup_with_snapshots(
 
 
 class TestInit:
+    @pytest.fixture(autouse=True)
+    def mock_database_probe(self):
+        with (
+            patch.object(PostgresqlBackend, "get_engine_version", return_value=17),
+            patch.object(PostgresqlBackend, "check_permissions") as permissions,
+        ):
+            permissions.return_value = PgPermissions(
+                can_createdb=True,
+                is_superuser=True,
+                has_pg_signal_backend=True,
+            )
+            yield
+
     def test_installs_hook(self, git_repo):
         old_cwd = os.getcwd()
         os.chdir(git_repo)
@@ -101,6 +114,27 @@ class TestInit:
             )
             assert result.exit_code == 1
             assert "Not inside a git repository" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_fails_when_database_unreachable(self, git_repo):
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            with patch.object(
+                PostgresqlBackend,
+                "get_engine_version",
+                side_effect=DatabaseError("connection refused"),
+            ):
+                result = runner.invoke(
+                    app,
+                    ["init", "--database-url", "postgresql://localhost/testdb"],
+                )
+
+            assert result.exit_code == 1
+            assert "Could not connect to database" in result.output
+            assert "initialized" not in result.output
+            assert not (git_repo / ".git" / "hooks" / "post-checkout").exists()
         finally:
             os.chdir(old_cwd)
 

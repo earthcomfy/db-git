@@ -136,6 +136,20 @@ class PostgresqlBackend:
         finally:
             conn.close()
 
+    def database_exists(self, url: str, name: str) -> bool:
+        """
+        Return whether a PostgreSQL database exists.
+        """
+        params = self.apply_url_defaults(parse_database_url(url))
+        conn = self.connect_maintenance(params)
+        try:
+            cur = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,))
+            return cur.fetchone() is not None
+        except psycopg.Error as e:
+            raise DatabaseError(f"Could not inspect database '{name}': {e}") from e
+        finally:
+            conn.close()
+
     def detect_strategy(self, config: GitDbConfig) -> SnapshotStrategy:
         """
         Return the configured snapshot strategy for this PostgreSQL instance.

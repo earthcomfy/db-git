@@ -122,6 +122,8 @@ class DatabaseBackend(Protocol):
 
     def check_permissions(self, url: str) -> object: ...
 
+    def database_exists(self, url: str, name: str) -> bool: ...
+
 
 def register_backend(scheme: str, cls: type[DatabaseBackend]) -> None:
     """

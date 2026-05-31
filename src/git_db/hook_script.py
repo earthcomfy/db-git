@@ -23,9 +23,15 @@ if [ -f "$GIT_DIR/hooks/post-checkout.legacy" ]; then
     "$GIT_DIR/hooks/post-checkout.legacy" "$@"
 fi
 
-# Call git-db; fail silently if not installed
-if command -v git-db >/dev/null 2>&1; then
+# Call git-db. Prefer the executable resolved when the hook was installed so
+# project-local venv installs keep working in Git's sparse hook environment.
+GIT_DB_BIN="{git_db_executable}"
+if [ -n "$GIT_DB_BIN" ] && [ -x "$GIT_DB_BIN" ]; then
+    "$GIT_DB_BIN" _hook-dispatch "$PREV_HEAD" "$NEW_HEAD" "$IS_BRANCH_CHECKOUT"
+elif command -v git-db >/dev/null 2>&1; then
     git-db _hook-dispatch "$PREV_HEAD" "$NEW_HEAD" "$IS_BRANCH_CHECKOUT"
+else
+    echo "git-db warning: executable not found; run 'git-db hook install'" >&2
 fi
 
 # NEVER block git checkout
@@ -33,8 +39,11 @@ exit 0
 """
 
 
-def render_hook_script() -> str:
+def render_hook_script(git_db_executable: str = "") -> str:
     """
     Return the complete post-checkout hook script.
     """
-    return _HOOK_TEMPLATE.format(identifier=HOOK_IDENTIFIER)
+    return _HOOK_TEMPLATE.format(
+        identifier=HOOK_IDENTIFIER,
+        git_db_executable=git_db_executable,
+    )

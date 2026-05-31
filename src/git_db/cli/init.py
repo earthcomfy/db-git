@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -28,15 +29,30 @@ from ._prompts import (
 )
 
 
+class ModeChoice(StrEnum):
+    shared = "shared"
+    per_branch = "per-branch"
+
+
+class StrategyChoice(StrEnum):
+    template = "template"
+    pgdump = "pgdump"
+
+
+class ConnectionPolicyChoice(StrEnum):
+    terminate = "terminate"
+    fail = "fail"
+
+
 @app.command()
 def init(
     database_url: Annotated[
         str | None, typer.Option("--database-url", envvar="DATABASE_URL")
     ] = None,
-    mode: Annotated[str | None, typer.Option("--mode")] = None,
-    strategy: Annotated[str | None, typer.Option("--strategy")] = None,
+    mode: Annotated[ModeChoice | None, typer.Option("--mode")] = None,
+    strategy: Annotated[StrategyChoice | None, typer.Option("--strategy")] = None,
     on_active_connections: Annotated[
-        str | None, typer.Option("--on-active-connections")
+        ConnectionPolicyChoice | None, typer.Option("--on-active-connections")
     ] = None,
     no_hook: Annotated[bool, typer.Option("--no-hook")] = False,
 ) -> None:
@@ -84,37 +100,39 @@ def init(
             version = backend.get_engine_version(resolved_url)
         except DatabaseError as e:
             console.print(
-                f"[yellow]Warning:[/] Could not connect to database: {e}\n"
-                "  Permission checks skipped.\n"
+                f"[red]Error:[/] Could not connect to database: {e}\n"
+                "  Fix the database URL or database server, then rerun "
+                "[cyan]git-db init[/].\n"
             )
-        else:
-            console.print(
-                f"  Detected: [cyan]PostgreSQL {version}[/] "
-                f"at {params['host']}:{params['port']}"
-            )
-            console.print(f"  Database:  [cyan]{params['dbname']}[/]")
-            console.print(f"  User:      [cyan]{params['user']}[/]")
+            raise typer.Exit(1) from e
 
-            result = backend.check_permissions(resolved_url)
-            assert isinstance(result, PgPermissions)
-            permissions = result
-            console.print("\n  Checking permissions...")
-            console.print(
-                f"    CREATEDB:          "
-                f"{'[green]Yes[/]' if permissions.can_createdb else '[red]No[/]'}"
-            )
-            console.print(
-                f"    Superuser:         "
-                f"{'[green]Yes[/]' if permissions.is_superuser else '[red]No[/]'}"
-            )
-            sig_label = (
-                "[green]Yes[/]" if permissions.has_pg_signal_backend else "[red]No[/]"
-            )
-            console.print(f"    pg_signal_backend: {sig_label}")
-            console.print()
+        console.print(
+            f"  Detected: [cyan]PostgreSQL {version}[/] "
+            f"at {params['host']}:{params['port']}"
+        )
+        console.print(f"  Database:  [cyan]{params['dbname']}[/]")
+        console.print(f"  User:      [cyan]{params['user']}[/]")
+
+        result = backend.check_permissions(resolved_url)
+        assert isinstance(result, PgPermissions)
+        permissions = result
+        console.print("\n  Checking permissions...")
+        console.print(
+            f"    CREATEDB:          "
+            f"{'[green]Yes[/]' if permissions.can_createdb else '[red]No[/]'}"
+        )
+        console.print(
+            f"    Superuser:         "
+            f"{'[green]Yes[/]' if permissions.is_superuser else '[red]No[/]'}"
+        )
+        sig_label = (
+            "[green]Yes[/]" if permissions.has_pg_signal_backend else "[red]No[/]"
+        )
+        console.print(f"    pg_signal_backend: {sig_label}")
+        console.print()
 
         resolved_mode = resolve_choice(
-            flag_value=mode,
+            flag_value=mode.value if mode is not None else None,
             existing=existing_config.get("mode"),
             prompt_text="How should git-db manage database state across branches?",
             choices={"1": "shared", "2": "per-branch"},
@@ -139,7 +157,7 @@ def init(
             strategy_labels["1"] += " [red](requires CREATEDB)[/]"
 
         resolved_strategy = resolve_choice(
-            flag_value=strategy,
+            flag_value=strategy.value if strategy is not None else None,
             existing=existing_config.get("strategy"),
             prompt_text="Snapshot strategy",
             choices={"1": "template", "2": "pgdump"},
@@ -164,7 +182,11 @@ def init(
             "2": "fail: stop with an error",
         }
         resolved_policy = resolve_choice(
-            flag_value=on_active_connections,
+            flag_value=(
+                on_active_connections.value
+                if on_active_connections is not None
+                else None
+            ),
             existing=existing_config.get("on_active_connections"),
             prompt_text="When active connections prevent database operations",
             choices={"1": "terminate", "2": "fail"},
@@ -230,6 +252,8 @@ def init(
     except GitDbError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
     except Exception as e:
         if debug_enabled():
             raise

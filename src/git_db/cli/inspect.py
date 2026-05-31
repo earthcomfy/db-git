@@ -17,6 +17,8 @@ from git_db.storage import (
     has_snapshot,
     identify_stale_snapshots,
     list_snapshots,
+    snapshot_db_name,
+    snapshot_dump_path,
 )
 
 from ._common import check_enabled, debug_enabled, require_init
@@ -54,14 +56,18 @@ def list_cmd(
     table.add_column("Branch", style="cyan", no_wrap=True)
     table.add_column("Strategy", style="green")
     table.add_column("Size", justify="right", style="magenta")
+    table.add_column("Status", justify="center")
     table.add_column("Age", justify="right")
     table.add_column("Database", style="dim")
+
+    backend = get_backend(config.database_url)
 
     for s in snapshots:
         table.add_row(
             s.branch,
             s.strategy,
             format_size(s.file_size_bytes),
+            _shared_snapshot_status(config, backend, s.branch, s.strategy),
             format_age(s.created_at),
             s.database,
         )
@@ -132,6 +138,8 @@ def prune(
     except GitDbError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
     except Exception as e:
         if debug_enabled():
             raise
@@ -186,6 +194,8 @@ def status(
     except GitDbError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
     except Exception as e:
         if debug_enabled():
             raise
@@ -350,3 +360,35 @@ def _status_per_branch(
         f"  Enabled:    {enabled_status}"
     )
     console.print(Panel(summary, title="git-db status", border_style="blue"))
+
+
+def _shared_snapshot_status(
+    config: GitDbConfig,
+    backend: DatabaseBackend,
+    branch: str,
+    strategy_name: str,
+) -> str:
+    """
+    Return whether shared-mode snapshot storage still exists.
+    """
+    if strategy_name == "pgdump":
+        return (
+            "[green]exists[/]"
+            if snapshot_dump_path(config.snapshot_dir, branch).exists()
+            else "[red]missing[/]"
+        )
+
+    if strategy_name != "template":
+        return "[dim]unknown[/]"
+
+    params = backend.apply_url_defaults(parse_database_url(config.database_url))
+    dbname = str(params["dbname"])
+    name = snapshot_db_name(branch, dbname, backend.max_identifier_length)
+    try:
+        return (
+            "[green]exists[/]"
+            if backend.database_exists(config.database_url, name)
+            else "[red]missing[/]"
+        )
+    except Exception:
+        return "[yellow]unknown[/]"
