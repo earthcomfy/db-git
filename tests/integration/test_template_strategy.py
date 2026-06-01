@@ -7,11 +7,11 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from git_db.backends.postgresql.backend import PostgresqlBackend
-from git_db.backends.postgresql.template import TemplateStrategy
-from git_db.config import GitDbConfig
-from git_db.errors import ActiveConnectionsError, SnapshotError
-from git_db.storage import has_snapshot, read_metadata, snapshot_db_name
+from db_git.backends.postgresql.backend import PostgresqlBackend
+from db_git.backends.postgresql.template import TemplateStrategy
+from db_git.config import DbGitConfig
+from db_git.errors import ActiveConnectionsError, SnapshotError
+from db_git.storage import has_snapshot, read_metadata, snapshot_db_name
 from tests._pg_helpers import get_names, reconnect, seed_users
 
 
@@ -22,7 +22,7 @@ class TestTemplateStrategy:
         pg_info: dict,
         backend: PostgresqlBackend,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         config = make_config(strategy="template")
         seed_users(config.database_url)
@@ -63,7 +63,7 @@ class TestTemplateStrategy:
     def test_save_raises_under_fail_policy_with_active_connection(
         self,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         config = make_config(strategy="template", policy="fail")
         seed_users(config.database_url)
@@ -89,7 +89,7 @@ class TestTemplateStrategy:
         pg_info: dict,
         backend: PostgresqlBackend,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
         maintenance_conn: psycopg.Connection,
     ) -> None:
         """
@@ -134,7 +134,7 @@ class TestTemplateStrategy:
     def test_save_overwrites_existing_snapshot(
         self,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         A second save on the same branch replaces the first snapshot DB.
@@ -182,11 +182,11 @@ class TestTemplateStrategy:
         pg_info: dict,
         backend: PostgresqlBackend,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
         maintenance_conn: psycopg.Connection,
     ) -> None:
         """
-        If the snapshot DB was dropped behind git-db's back, restore must
+        If the snapshot DB was dropped behind db-git's back, restore must
         fail with SnapshotError (not a raw psycopg error) so callers can
         handle it.
         """
@@ -223,7 +223,7 @@ class TestTemplateStrategy:
         pg_info: dict,
         backend: PostgresqlBackend,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
         maintenance_conn: psycopg.Connection,
     ) -> None:
         """
@@ -263,7 +263,7 @@ class TestTemplateStrategy:
         pg_info: dict,
         backend: PostgresqlBackend,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         config = make_config(strategy="template")
         seed_users(config.database_url)
@@ -287,7 +287,7 @@ class TestTemplateStrategy:
     def test_cleanup_on_never_saved_branch_is_noop(
         self,
         template_strategy: TemplateStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         cleanup on a branch that was never saved must not raise.

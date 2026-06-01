@@ -127,8 +127,8 @@ def drop_db_and_branches(
         )
         for row in cur.fetchall():
             conn.execute(f'DROP DATABASE IF EXISTS "{row[0]}" WITH (FORCE)')
-        # Also drop shared-mode snapshot DBs: _gitdb_{dbname}_%
-        snapshot_pattern = f"_gitdb_{dbname}_%"
+        # Also drop shared-mode snapshot DBs: _dbgit_{dbname}_%
+        snapshot_pattern = f"_dbgit_{dbname}_%"
         cur = conn.execute(
             "SELECT datname FROM pg_database WHERE datname LIKE %s",
             (snapshot_pattern,),
@@ -140,14 +140,14 @@ def drop_db_and_branches(
         conn.close()
 
 
-def _git_db_binary() -> str:
+def _db_git_binary() -> str:
     """
-    Locate the git-db console script installed next to this venv's python.
+    Locate the db-git console script installed next to this venv's python.
     """
-    return str(Path(sys.executable).parent / "git-db")
+    return str(Path(sys.executable).parent / "db-git")
 
 
-def run_git_db(
+def run_db_git(
     *args: str,
     env: dict,
     cwd: Path | None = None,
@@ -156,9 +156,9 @@ def run_git_db(
     timeout: int = 120,
 ) -> subprocess.CompletedProcess:
     """
-    Invoke the git-db console script installed in this venv as a real
-    subprocess. This matches how the post-checkout hook invokes git-db
-    (via `command -v git-db`), so tests exercise the same binary shape.
+    Invoke the db-git console script installed in this venv as a real
+    subprocess. This matches how the post-checkout hook invokes db-git
+    (via `command -v db-git`), so tests exercise the same binary shape.
 
     On `check=True`, a non-zero exit raises CalledProcessError with
     stdout and stderr captured. Failures in a test re-raise that
@@ -166,7 +166,7 @@ def run_git_db(
     error output for debugging.
     """
     result = subprocess.run(
-        [_git_db_binary(), *args],
+        [_db_git_binary(), *args],
         env=env,
         cwd=cwd,
         capture_output=True,
@@ -177,7 +177,7 @@ def run_git_db(
     )
     if check and result.returncode != 0:
         raise AssertionError(
-            f"git-db {' '.join(args)} exited {result.returncode}\n"
+            f"db-git {' '.join(args)} exited {result.returncode}\n"
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )

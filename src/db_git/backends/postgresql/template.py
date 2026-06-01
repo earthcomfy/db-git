@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 import psycopg
 from psycopg import sql
 
-from git_db.backends import DatabaseBackend, DbConnection
-from git_db.backends.postgresql.connections import handle_active_connections
-from git_db.db import parse_database_url
-from git_db.errors import DatabaseError, SnapshotError, TerminationTimeout
-from git_db.storage import (
+from db_git.backends import DatabaseBackend, DbConnection
+from db_git.backends.postgresql.connections import handle_active_connections
+from db_git.db import parse_database_url
+from db_git.errors import DatabaseError, SnapshotError, TerminationTimeout
+from db_git.storage import (
     make_metadata,
     metadata_path,
     snapshot_db_name,
@@ -18,7 +18,7 @@ from git_db.storage import (
 )
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
+    from db_git.config import DbGitConfig
 
 
 class TemplateStrategy:
@@ -36,7 +36,7 @@ class TemplateStrategy:
         db_url: str,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
         dbname = str(params["dbname"])
@@ -80,7 +80,7 @@ class TemplateStrategy:
         db_url: str,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
         dbname = str(params["dbname"])
@@ -110,7 +110,7 @@ class TemplateStrategy:
         self,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         """
         Drop the snapshot database and remove the metadata file.

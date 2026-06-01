@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from psycopg import sql
 
-from git_db.backends import DbConnection
-from git_db.errors import ActiveConnectionsError, TerminationTimeout
+from db_git.backends import DbConnection
+from db_git.errors import ActiveConnectionsError, TerminationTimeout
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
+    from db_git.config import DbGitConfig
 
 
 class ConnectionInfo(NamedTuple):
@@ -37,7 +37,7 @@ def check_connections(conn: DbConnection, dbname: str) -> list[ConnectionInfo]:
 def handle_active_connections(
     conn: DbConnection,
     dbname: str,
-    config: GitDbConfig,
+    config: DbGitConfig,
 ) -> bool:
     """
     Handle active connections based on config policy.

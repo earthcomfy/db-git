@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 
-from git_db.state import (
+from db_git.state import (
     BranchDbEntry,
-    GitDbState,
+    DbGitState,
     get_branch_db,
     load_state,
     record_branch_db,
@@ -20,7 +20,7 @@ class TestState:
         assert state.databases == {}
 
     def test_save_and_load_round_trip(self, tmp_path):
-        state = GitDbState(
+        state = DbGitState(
             mode="per-branch",
             databases={
                 "feature/auth": BranchDbEntry(
@@ -41,8 +41,8 @@ class TestState:
     def test_save_creates_directory(self, tmp_path):
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        save_state(git_dir, GitDbState())
-        assert (git_dir / "git-db" / "state.json").exists()
+        save_state(git_dir, DbGitState())
+        assert (git_dir / "db-git" / "state.json").exists()
 
     def test_record_branch_db_adds_entry(self, tmp_path):
         record_branch_db(tmp_path, "feature/x", "myapp__feature__x", "main")
@@ -72,7 +72,7 @@ class TestState:
         assert get_branch_db(tmp_path, "nonexistent") is None
 
     def test_load_malformed_json_returns_empty(self, tmp_path):
-        state_dir = tmp_path / "git-db"
+        state_dir = tmp_path / "db-git"
         state_dir.mkdir(parents=True)
         (state_dir / "state.json").write_text("not json")
         state = load_state(tmp_path)
@@ -80,7 +80,7 @@ class TestState:
 
     def test_state_file_is_valid_json(self, tmp_path):
         record_branch_db(tmp_path, "feat", "myapp__feat", "main")
-        state_file = tmp_path / "git-db" / "state.json"
+        state_file = tmp_path / "db-git" / "state.json"
         data = json.loads(state_file.read_text())
         assert "databases" in data
         assert "feat" in data["databases"]

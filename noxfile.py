@@ -42,7 +42,7 @@ def integration(session: nox.Session, pg_image: str) -> None:
     if shutil.which("docker") is None:
         session.skip("docker not available")
     _install(session)
-    session.env["GITDB_TEST_PG_IMAGE"] = pg_image
+    session.env["DB_GIT_TEST_PG_IMAGE"] = pg_image
     session.run(
         "pytest",
         "tests/integration",

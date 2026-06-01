@@ -90,12 +90,12 @@ class PgConn:
 def postgres_image() -> str:
     """
     PG image to test against. Precedence:
-    1. GITDB_TEST_PG_IMAGE env var (set by CI matrix)
+    1. DB_GIT_TEST_PG_IMAGE env var (set by CI matrix)
     2. Match the host pg_dump major version so local tests don't hit a
        server-version-newer-than-client mismatch
     3. Fall back to postgres:16
     """
-    if env_image := os.environ.get("GITDB_TEST_PG_IMAGE"):
+    if env_image := os.environ.get("DB_GIT_TEST_PG_IMAGE"):
         return env_image
     if host_major := _detect_host_pg_dump_major():
         return f"postgres:{host_major}"
@@ -122,7 +122,7 @@ def postgres_container(
         return
 
     root = tmp_path_factory.getbasetemp().parent
-    info_file = root / "gitdb_pg_container.json"
+    info_file = root / "dbgit_pg_container.json"
     lock_file = str(info_file) + ".lock"
 
     with FileLock(lock_file):
@@ -153,7 +153,7 @@ def pg_info(postgres_container: PgConn, worker_id: str) -> Iterator[dict]:
     port = postgres_container.port
     user = postgres_container.username
     password = postgres_container.password
-    dbname = f"gitdb_test_{worker_id}_{uuid.uuid4().hex[:8]}"
+    dbname = f"dbgit_test_{worker_id}_{uuid.uuid4().hex[:8]}"
 
     admin_exec(host, port, user, password, f'CREATE DATABASE "{dbname}"')
 

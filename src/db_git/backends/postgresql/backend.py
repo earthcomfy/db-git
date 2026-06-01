@@ -6,26 +6,26 @@ from typing import TYPE_CHECKING, ClassVar
 
 import psycopg
 
-from git_db.backends import (
+from db_git.backends import (
     BranchDbManager,
     DbConnection,
     SnapshotStrategy,
     register_backend,
 )
-from git_db.backends.postgresql.branch_db import PostgresBranchDbManager
-from git_db.backends.postgresql.pgdump import PgDumpStrategy
-from git_db.backends.postgresql.template import TemplateStrategy
-from git_db.db import parse_database_url
-from git_db.errors import ConfigError, DatabaseError
+from db_git.backends.postgresql.branch_db import PostgresBranchDbManager
+from db_git.backends.postgresql.pgdump import PgDumpStrategy
+from db_git.backends.postgresql.template import TemplateStrategy
+from db_git.db import parse_database_url
+from db_git.errors import ConfigError, DatabaseError
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
+    from db_git.config import DbGitConfig
 
 
 @dataclass
 class PgPermissions:
     """
-    PostgreSQL role permissions relevant to git-db operations.
+    PostgreSQL role permissions relevant to db-git operations.
     """
 
     can_createdb: bool
@@ -150,7 +150,7 @@ class PostgresqlBackend:
         finally:
             conn.close()
 
-    def detect_strategy(self, config: GitDbConfig) -> SnapshotStrategy:
+    def detect_strategy(self, config: DbGitConfig) -> SnapshotStrategy:
         """
         Return the configured snapshot strategy for this PostgreSQL instance.
         """
@@ -166,7 +166,7 @@ class PostgresqlBackend:
             return PgDumpStrategy(backend=self, pg_version=pg_version)
         return TemplateStrategy(backend=self)
 
-    def branch_db_manager(self, config: GitDbConfig) -> BranchDbManager:
+    def branch_db_manager(self, config: DbGitConfig) -> BranchDbManager:
         """
         Return the per-branch database manager for this PostgreSQL instance.
         """

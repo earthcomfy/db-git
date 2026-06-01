@@ -6,18 +6,18 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from git_db.backends.postgresql.backend import PostgresqlBackend
-from git_db.backends.postgresql.branch_db import PostgresBranchDbManager
-from git_db.backends.postgresql.pgdump import PgDumpStrategy
-from git_db.backends.postgresql.template import TemplateStrategy
-from git_db.config import GitDbConfig
+from db_git.backends.postgresql.backend import PostgresqlBackend
+from db_git.backends.postgresql.branch_db import PostgresBranchDbManager
+from db_git.backends.postgresql.pgdump import PgDumpStrategy
+from db_git.backends.postgresql.template import TemplateStrategy
+from db_git.config import DbGitConfig
 from tests._pg_helpers import build_url
 
 
 @pytest.fixture
-def make_config(pg_info: dict, tmp_path: Path) -> Callable[..., GitDbConfig]:
+def make_config(pg_info: dict, tmp_path: Path) -> Callable[..., DbGitConfig]:
     """
-    Factory for GitDbConfig parameterized on strategy/policy.
+    Factory for DbGitConfig parameterized on strategy/policy.
     """
 
     def _make(
@@ -27,8 +27,8 @@ def make_config(pg_info: dict, tmp_path: Path) -> Callable[..., GitDbConfig]:
         mode: str = "shared",
         snapshot_dir: Path | None = None,
         force_terminate_timeout_ms: int = 2000,
-    ) -> GitDbConfig:
-        return GitDbConfig(
+    ) -> DbGitConfig:
+        return DbGitConfig(
             database_url=build_url(pg_info),
             strategy=strategy,
             mode=mode,
@@ -82,7 +82,7 @@ def template_strategy(backend: PostgresqlBackend) -> TemplateStrategy:
 @pytest.fixture
 def template_manager(
     backend: PostgresqlBackend,
-    make_config: Callable[..., GitDbConfig],
+    make_config: Callable[..., DbGitConfig],
 ) -> PostgresBranchDbManager:
     """
     Per-branch DB manager configured for template strategy.
@@ -94,7 +94,7 @@ def template_manager(
 @pytest.fixture
 def pgdump_manager(
     backend: PostgresqlBackend,
-    make_config: Callable[..., GitDbConfig],
+    make_config: Callable[..., DbGitConfig],
 ) -> PostgresBranchDbManager:
     """
     Per-branch DB manager configured for pgdump strategy.

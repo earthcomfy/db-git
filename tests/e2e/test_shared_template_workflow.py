@@ -12,8 +12,8 @@ from tests._pg_helpers import (
     get_names,
     git_commit_file,
     reconnect,
+    run_db_git,
     run_git,
-    run_git_db,
     seed_users,
 )
 from tests.e2e._helpers import make_branch, run_init
@@ -26,7 +26,7 @@ def _init(cli_env: dict, *extra: str) -> subprocess.CompletedProcess:
 
 
 def _snapshot_dir(repo: Path) -> Path:
-    return repo / ".git" / "git-db" / "snapshots"
+    return repo / ".git" / "db-git" / "snapshots"
 
 
 def _meta_files(repo: Path) -> set[str]:
@@ -37,7 +37,7 @@ def _meta_files(repo: Path) -> set[str]:
 @pytest.fixture
 def initialized(cli_env: dict) -> dict:
     """
-    cli_env after `git-db init --mode shared --strategy template`.
+    cli_env after `db-git init --mode shared --strategy template`.
     """
     _init(cli_env)
     return cli_env
@@ -52,23 +52,23 @@ class TestSharedTemplateWorkflow:
         _init(cli_env)
         repo = cli_env["repo"]
 
-        toml = (repo / ".git-db.toml").read_text()
+        toml = (repo / ".db-git.toml").read_text()
         assert 'mode = "shared"' in toml
         assert 'strategy = "template"' in toml
         assert cli_env["db_url"] in toml
 
         hook = repo / ".git" / "hooks" / "post-checkout"
         assert hook.exists()
-        assert "git-db-hook-v1" in hook.read_text()
+        assert "db-git-hook-v1" in hook.read_text()
         assert hook.stat().st_mode & 0o111
 
     def test_init_no_hook_flag_skips_hook(self, cli_env: dict) -> None:
         _init(cli_env, "--no-hook")
         assert not (cli_env["repo"] / ".git" / "hooks" / "post-checkout").exists()
-        assert (cli_env["repo"] / ".git-db.toml").exists()
+        assert (cli_env["repo"] / ".db-git.toml").exists()
 
     def test_reinit_updates_existing_config(self, initialized: dict) -> None:
-        run_git_db(
+        run_db_git(
             "init",
             "--database-url",
             initialized["db_url"],
@@ -81,16 +81,16 @@ class TestSharedTemplateWorkflow:
             cwd=initialized["repo"],
             env=initialized["subprocess_env"],
         )
-        toml = (initialized["repo"] / ".git-db.toml").read_text()
+        toml = (initialized["repo"] / ".db-git.toml").read_text()
         assert 'on_active_connections = "fail"' in toml
 
     def test_init_fails_without_database_url(self, cli_env: dict) -> None:
         env = {
             k: v
             for k, v in cli_env["subprocess_env"].items()
-            if k not in {"DATABASE_URL", "GIT_DB_DATABASE_URL"}
+            if k not in {"DATABASE_URL", "DB_GIT_DATABASE_URL"}
         }
-        result = run_git_db(
+        result = run_db_git(
             "init",
             "--mode",
             "shared",
@@ -104,7 +104,7 @@ class TestSharedTemplateWorkflow:
 
     def test_commands_require_init(self, cli_env: dict) -> None:
         for cmd in ("save", "restore", "list", "status", "prune"):
-            result = run_git_db(
+            result = run_db_git(
                 cmd,
                 cwd=cli_env["repo"],
                 env=cli_env["subprocess_env"],
@@ -117,7 +117,7 @@ class TestSharedTemplateWorkflow:
     # -----------------------------------------------------------------------
 
     def test_env_var_overrides_toml(self, initialized: dict) -> None:
-        toml = initialized["repo"] / ".git-db.toml"
+        toml = initialized["repo"] / ".db-git.toml"
         toml.write_text(
             toml.read_text().replace(
                 initialized["db_url"],
@@ -125,7 +125,7 @@ class TestSharedTemplateWorkflow:
             )
         )
         env = {**initialized["subprocess_env"], "DATABASE_URL": initialized["db_url"]}
-        result = run_git_db("status", cwd=initialized["repo"], env=env)
+        result = run_db_git("status", cwd=initialized["repo"], env=env)
         assert result.returncode == 0
 
     def test_cli_flag_overrides_env(self, initialized: dict) -> None:
@@ -133,7 +133,7 @@ class TestSharedTemplateWorkflow:
             **initialized["subprocess_env"],
             "DATABASE_URL": "postgresql://nope:nope@127.0.0.1:1/nope",
         }
-        result = run_git_db(
+        result = run_db_git(
             "status",
             "--database-url",
             initialized["db_url"],
@@ -149,7 +149,7 @@ class TestSharedTemplateWorkflow:
     def test_hook_install_is_idempotent(self, initialized: dict) -> None:
         hook = initialized["repo"] / ".git" / "hooks" / "post-checkout"
         before = hook.read_text()
-        run_git_db(
+        run_db_git(
             "hook",
             "install",
             cwd=initialized["repo"],
@@ -173,7 +173,7 @@ class TestSharedTemplateWorkflow:
         assert preserved.exists()
         assert preserved.read_text() == legacy_content
 
-        run_git_db(
+        run_db_git(
             "hook",
             "remove",
             cwd=cli_env["repo"],
@@ -183,7 +183,7 @@ class TestSharedTemplateWorkflow:
         assert (hooks / "post-checkout").read_text() == legacy_content
 
     def test_hook_remove_fails_without_installed_hook(self, cli_env: dict) -> None:
-        result = run_git_db(
+        result = run_db_git(
             "hook",
             "remove",
             cwd=cli_env["repo"],
@@ -243,7 +243,7 @@ class TestSharedTemplateWorkflow:
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         assert {"master.meta.json", "main.meta.json"} & _meta_files(repo) or (
             f"{default}.meta.json" in _meta_files(repo)
         )
@@ -254,14 +254,14 @@ class TestSharedTemplateWorkflow:
             conn.execute("INSERT INTO users (name) VALUES ('OnFeature')")
         finally:
             conn.close()
-        run_git_db("save", "feature", cwd=repo, env=env)
+        run_db_git("save", "feature", cwd=repo, env=env)
 
         # Hook not installed: checkout does not restore. Data unchanged.
         run_git("checkout", default, cwd=repo, env=env)
         assert "OnFeature" in get_names(url)
 
         # Explicit restore rewinds to default's snapshot.
-        run_git_db("restore", default, cwd=repo, env=env)
+        run_db_git("restore", default, cwd=repo, env=env)
         assert get_names(url) == ["Alice", "Bob", "Charlie"]
 
     def test_empty_database_roundtrip(self, initialized: dict) -> None:
@@ -269,13 +269,13 @@ class TestSharedTemplateWorkflow:
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
 
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         conn = reconnect(url)
         try:
             conn.execute("CREATE TABLE t (id int)")
         finally:
             conn.close()
-        run_git_db("restore", cwd=repo, env=env)
+        run_db_git("restore", cwd=repo, env=env)
         conn = reconnect(url)
         try:
             cur = conn.execute(
@@ -289,11 +289,11 @@ class TestSharedTemplateWorkflow:
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
         seed_users(initialized["db_url"])
-        run_git_db("save", "arbitrary-label", cwd=repo, env=env)
+        run_db_git("save", "arbitrary-label", cwd=repo, env=env)
         assert "arbitrary_label.meta.json" in _meta_files(repo)
 
     # -----------------------------------------------------------------------
-    # Disable / enable / GIT_DB_SKIP
+    # Disable / enable / DB_GIT_SKIP
     # -----------------------------------------------------------------------
 
     def test_disable_gates_the_hook_and_enable_restores(
@@ -305,12 +305,12 @@ class TestSharedTemplateWorkflow:
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         make_branch(initialized, "feature")
         run_git("checkout", default, cwd=repo, env=env)
 
-        run_git_db("disable", cwd=repo, env=env)
-        assert (repo / ".git" / "git-db" / "disabled").exists()
+        run_db_git("disable", cwd=repo, env=env)
+        assert (repo / ".git" / "db-git" / "disabled").exists()
 
         # While disabled: mutate then switch. Hook must not save or restore.
         conn = reconnect(url)
@@ -321,17 +321,17 @@ class TestSharedTemplateWorkflow:
         run_git("checkout", "feature", cwd=repo, env=env)
         assert "WhileDisabled" in get_names(url)
 
-        run_git_db("enable", cwd=repo, env=env)
-        assert not (repo / ".git" / "git-db" / "disabled").exists()
+        run_db_git("enable", cwd=repo, env=env)
+        assert not (repo / ".git" / "db-git" / "disabled").exists()
 
-    def test_git_db_skip_env_bypasses_one_checkout(self, initialized: dict) -> None:
+    def test_db_git_skip_env_bypasses_one_checkout(self, initialized: dict) -> None:
         url = initialized["db_url"]
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         make_branch(initialized, "feature")
 
         conn = reconnect(url)
@@ -340,7 +340,7 @@ class TestSharedTemplateWorkflow:
         finally:
             conn.close()
 
-        skip_env = {**env, "GIT_DB_SKIP": "1"}
+        skip_env = {**env, "DB_GIT_SKIP": "1"}
         run_git("checkout", default, cwd=repo, env=skip_env)
         # Hook skipped at shell layer: no save, no restore. Data untouched.
         assert "SkipMe" in get_names(url)
@@ -356,7 +356,7 @@ class TestSharedTemplateWorkflow:
         seed_users(url)
         holder = reconnect(url)
         try:
-            run_git_db(
+            run_db_git(
                 "save",
                 cwd=initialized["repo"],
                 env=initialized["subprocess_env"],
@@ -371,7 +371,7 @@ class TestSharedTemplateWorkflow:
         seed_users(url)
         holder = reconnect(url)
         try:
-            result = run_git_db(
+            result = run_db_git(
                 "save",
                 cwd=cli_env["repo"],
                 env=cli_env["subprocess_env"],
@@ -387,11 +387,11 @@ class TestSharedTemplateWorkflow:
         _init(cli_env, "--on-active-connections", "fail")
         url = cli_env["db_url"]
         seed_users(url)
-        run_git_db("save", cwd=cli_env["repo"], env=cli_env["subprocess_env"])
+        run_db_git("save", cwd=cli_env["repo"], env=cli_env["subprocess_env"])
 
         holder = reconnect(url)
         try:
-            result = run_git_db(
+            result = run_db_git(
                 "restore",
                 cwd=cli_env["repo"],
                 env=cli_env["subprocess_env"],
@@ -435,7 +435,7 @@ class TestSharedTemplateWorkflow:
         make_branch(initialized, "feature")
         run_git("checkout", get_default_branch(repo), cwd=repo, env=env)
 
-        (repo / ".git-db.toml").write_text("this is = not [[[ valid toml")
+        (repo / ".db-git.toml").write_text("this is = not [[[ valid toml")
 
         result = subprocess.run(
             ["git", "checkout", "feature"],
@@ -450,7 +450,7 @@ class TestSharedTemplateWorkflow:
         repo = cli_env["repo"]
         env = cli_env["subprocess_env"]
 
-        run_git_db("hook", "install", cwd=repo, env=env)
+        run_db_git("hook", "install", cwd=repo, env=env)
         run_git("checkout", "-b", "feature", cwd=repo, env=env)
         git_commit_file(repo, "f.txt", "f\n", env=env)
 
@@ -476,14 +476,14 @@ class TestSharedTemplateWorkflow:
         """
         Drive a real `git rebase -i` that pauses at 'edit' via GIT_SEQUENCE_EDITOR.
         Any internal checkouts git performs during rebase must not trigger
-        git-db snapshot saves because `.git/rebase-merge/` exists.
+        db-git snapshot saves because `.git/rebase-merge/` exists.
         """
         url = initialized["db_url"]
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
 
         # Two extra commits so HEAD~2 is valid
         git_commit_file(repo, "a.txt", "a\n", env=env)
@@ -516,7 +516,7 @@ class TestSharedTemplateWorkflow:
         env = initialized["subprocess_env"]
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
 
         head_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -542,7 +542,7 @@ class TestSharedTemplateWorkflow:
         env = initialized["subprocess_env"]
 
         seed_users(initialized["db_url"])
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
 
         (repo / "already.txt").write_text("v1\n")
         run_git("add", "already.txt", cwd=repo, env=env)
@@ -573,10 +573,10 @@ class TestSharedTemplateWorkflow:
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
 
-        # Commit .git-db.toml so the clone receives it and the hook has config
-        (repo / ".gitignore").write_text(".git-db/\n.git-db.toml.swp\n")
-        run_git("add", ".git-db.toml", ".gitignore", cwd=repo, env=env)
-        run_git("commit", "-m", "add git-db config", cwd=repo, env=env)
+        # Commit .db-git.toml so the clone receives it and the hook has config
+        (repo / ".gitignore").write_text(".db-git/\n.db-git.toml.swp\n")
+        run_git("add", ".db-git.toml", ".gitignore", cwd=repo, env=env)
+        run_git("commit", "-m", "add db-git config", cwd=repo, env=env)
 
         bare = tmp_path / "upstream.git"
         run_git("clone", "--bare", str(repo), str(bare), cwd=tmp_path, env=env)
@@ -595,7 +595,7 @@ class TestSharedTemplateWorkflow:
             text=True,
         )
         assert result.returncode == 0, result.stderr
-        assert (fresh / ".git-db.toml").exists()
+        assert (fresh / ".db-git.toml").exists()
 
     # -----------------------------------------------------------------------
     # Branch name sanitization
@@ -606,11 +606,11 @@ class TestSharedTemplateWorkflow:
         env = initialized["subprocess_env"]
 
         seed_users(initialized["db_url"])
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
 
         run_git("checkout", "-b", "feature/auth", cwd=repo, env=env)
         git_commit_file(repo, "a.txt", "a\n", env=env)
-        run_git_db("save", "feature/auth", cwd=repo, env=env)
+        run_db_git("save", "feature/auth", cwd=repo, env=env)
 
         assert "feature__auth.meta.json" in _meta_files(repo)
 
@@ -622,7 +622,7 @@ class TestSharedTemplateWorkflow:
         seed_users(initialized["db_url"])
         run_git("checkout", "-b", long_name, cwd=repo, env=env)
         git_commit_file(repo, "l.txt", "l\n", env=env)
-        result = run_git_db("save", long_name, cwd=repo, env=env)
+        result = run_db_git("save", long_name, cwd=repo, env=env)
         assert result.returncode == 0
 
     # -----------------------------------------------------------------------
@@ -636,14 +636,14 @@ class TestSharedTemplateWorkflow:
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         make_branch(initialized, "stale")
-        run_git_db("save", "stale", cwd=repo, env=env)
+        run_db_git("save", "stale", cwd=repo, env=env)
         run_git("checkout", default, cwd=repo, env=env)
         run_git("branch", "-D", "stale", cwd=repo, env=env)
 
         before = _meta_files(repo)
-        run_git_db("prune", "--dry-run", cwd=repo, env=env)
+        run_db_git("prune", "--dry-run", cwd=repo, env=env)
         assert _meta_files(repo) == before
 
     def test_prune_yes_drops_stale_snapshots(self, initialized: dict) -> None:
@@ -653,13 +653,13 @@ class TestSharedTemplateWorkflow:
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         make_branch(initialized, "stale")
-        run_git_db("save", "stale", cwd=repo, env=env)
+        run_db_git("save", "stale", cwd=repo, env=env)
         run_git("checkout", default, cwd=repo, env=env)
         run_git("branch", "-D", "stale", cwd=repo, env=env)
 
-        run_git_db("prune", "--yes", cwd=repo, env=env)
+        run_db_git("prune", "--yes", cwd=repo, env=env)
         assert not any("stale" in n for n in _meta_files(repo))
 
     def test_prune_refuses_non_tty_without_yes(self, initialized: dict) -> None:
@@ -668,30 +668,30 @@ class TestSharedTemplateWorkflow:
         default = get_default_branch(repo)
 
         seed_users(initialized["db_url"])
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         make_branch(initialized, "stale")
-        run_git_db("save", "stale", cwd=repo, env=env)
+        run_db_git("save", "stale", cwd=repo, env=env)
         run_git("checkout", default, cwd=repo, env=env)
         run_git("branch", "-D", "stale", cwd=repo, env=env)
 
-        result = run_git_db("prune", cwd=repo, env=env, check=False)
+        result = run_db_git("prune", cwd=repo, env=env, check=False)
         assert result.returncode != 0
 
     def test_prune_respects_max_snapshots(self, initialized: dict) -> None:
         url = initialized["db_url"]
         repo = initialized["repo"]
-        env = {**initialized["subprocess_env"], "GIT_DB_MAX_SNAPSHOTS": "1"}
+        env = {**initialized["subprocess_env"], "DB_GIT_MAX_SNAPSHOTS": "1"}
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         for name in ("a", "b", "c"):
             run_git("checkout", "-b", name, cwd=repo, env=env)
             git_commit_file(repo, f"{name}.txt", name, env=env)
-            run_git_db("save", name, cwd=repo, env=env)
+            run_db_git("save", name, cwd=repo, env=env)
             run_git("checkout", default, cwd=repo, env=env)
 
-        run_git_db("prune", "--yes", cwd=repo, env=env)
+        run_db_git("prune", "--yes", cwd=repo, env=env)
         assert len(_meta_files(repo)) <= 1
 
     # -----------------------------------------------------------------------
@@ -705,12 +705,12 @@ class TestSharedTemplateWorkflow:
         default = get_default_branch(repo)
 
         seed_users(url)
-        run_git_db("save", cwd=repo, env=env)
+        run_db_git("save", cwd=repo, env=env)
         make_branch(initialized, "feature")
-        run_git_db("save", "feature", cwd=repo, env=env)
+        run_db_git("save", "feature", cwd=repo, env=env)
         run_git("checkout", default, cwd=repo, env=env)
 
-        result = run_git_db("list", cwd=repo, env=env)
+        result = run_db_git("list", cwd=repo, env=env)
         out = result.stdout + result.stderr
         assert default in out
         assert "feature" in out
@@ -720,11 +720,11 @@ class TestSharedTemplateWorkflow:
         env = initialized["subprocess_env"]
 
         seed_users(initialized["db_url"])
-        r1 = run_git_db("status", cwd=repo, env=env)
+        r1 = run_db_git("status", cwd=repo, env=env)
         out1 = r1.stdout + r1.stderr
         assert "template" in out1
 
-        run_git_db("disable", cwd=repo, env=env)
-        r2 = run_git_db("status", cwd=repo, env=env)
+        run_db_git("disable", cwd=repo, env=env)
+        r2 = run_db_git("status", cwd=repo, env=env)
         out2 = r2.stdout + r2.stderr
         assert "no" in out2.lower()

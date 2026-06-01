@@ -7,19 +7,19 @@ from typing import Annotated
 import typer
 from rich.panel import Panel
 
-from git_db.backends import get_backend
-from git_db.backends.postgresql.backend import PgPermissions
-from git_db.config import (
+from db_git.backends import get_backend
+from db_git.backends.postgresql.backend import PgPermissions
+from db_git.config import (
     ensure_config_ignored,
     find_project_root,
     load_config,
     load_dotfile_config,
     write_config,
 )
-from git_db.db import parse_database_url
-from git_db.errors import DatabaseError, GitDbError
-from git_db.git import get_git_dir, install_hook
-from git_db.storage import ensure_snapshot_dir
+from db_git.db import parse_database_url
+from db_git.errors import DatabaseError, DbGitError
+from db_git.git import get_git_dir, install_hook
+from db_git.storage import ensure_snapshot_dir
 
 from ._common import debug_enabled
 from ._console import app, console
@@ -58,7 +58,7 @@ def init(
     no_hook: Annotated[bool, typer.Option("--no-hook")] = False,
 ) -> None:
     """
-    Initialize git-db in the current repo.
+    Initialize db-git in the current repo.
     """
     git_dir = get_git_dir()
     if git_dir is None:
@@ -75,7 +75,7 @@ def init(
             raise typer.Exit(1)
 
         existing_config = load_dotfile_config(project_root)
-        is_reinit = (project_root / ".git-db.toml").exists()
+        is_reinit = (project_root / ".db-git.toml").exists()
         if is_reinit:
             console.print("[dim]Updating existing configuration.[/]\n")
 
@@ -103,7 +103,7 @@ def init(
             console.print(
                 f"[red]Error:[/] Could not connect to database: {e}\n"
                 "  Fix the database URL or database server, then rerun "
-                "[cyan]git-db init[/].\n"
+                "[cyan]db-git init[/].\n"
             )
             raise typer.Exit(1) from e
 
@@ -135,7 +135,7 @@ def init(
         resolved_mode = resolve_choice(
             flag_value=mode.value if mode is not None else None,
             existing=existing_config.get("mode"),
-            prompt_text="How should git-db manage database state across branches?",
+            prompt_text="How should db-git manage database state across branches?",
             choices={"1": "shared", "2": "per-branch"},
             labels={
                 "1": "Single database: snapshot/restore on switch",
@@ -224,9 +224,9 @@ def init(
             config_updates["default_branch"] = resolved_default_branch
 
         write_config(project_root, config_updates)
-        console.print("[dim]Configuration saved to .git-db.toml[/]\n")
+        console.print("[dim]Configuration saved to .db-git.toml[/]\n")
         if ensure_config_ignored(project_root):
-            console.print("[dim]Added .git-db.toml to .gitignore[/]\n")
+            console.print("[dim]Added .db-git.toml to .gitignore[/]\n")
 
         hook_status = "[dim]skipped[/]"
         if install_hook_flag:
@@ -250,9 +250,9 @@ def init(
         if resolved_mode == "per-branch":
             summary += f"\n  Default:    [cyan]{resolved_default_branch}[/]"
 
-        console.print(Panel(summary, title="git-db initialized", border_style="green"))
+        console.print(Panel(summary, title="db-git initialized", border_style="green"))
 
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -262,6 +262,6 @@ def init(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e

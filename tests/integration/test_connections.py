@@ -6,12 +6,12 @@ from collections.abc import Callable
 import psycopg
 import pytest
 
-from git_db.backends.postgresql.connections import (
+from db_git.backends.postgresql.connections import (
     check_connections,
     handle_active_connections,
 )
-from git_db.config import GitDbConfig
-from git_db.errors import ActiveConnectionsError, TerminationTimeout
+from db_git.config import DbGitConfig
+from db_git.errors import ActiveConnectionsError, TerminationTimeout
 from tests._pg_helpers import build_url, reconnect
 
 
@@ -48,7 +48,7 @@ class TestConnections:
         self,
         pg_info: dict,
         maintenance_conn: psycopg.Connection,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         blocker = reconnect(build_url(pg_info))
         try:
@@ -70,7 +70,7 @@ class TestConnections:
         self,
         pg_info: dict,
         maintenance_conn: psycopg.Connection,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         blocker = reconnect(build_url(pg_info))
         try:
@@ -88,7 +88,7 @@ class TestConnections:
         self,
         pg_info: dict,
         maintenance_conn: psycopg.Connection,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         terminate policy must kill all connections, not just one.
@@ -111,7 +111,7 @@ class TestConnections:
         self,
         pg_info: dict,
         maintenance_conn: psycopg.Connection,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         With force_terminate_timeout_ms=1, the deadline expires after the
@@ -134,7 +134,7 @@ class TestConnections:
         self,
         pg_info: dict,
         maintenance_conn: psycopg.Connection,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         After terminate succeeds, ALLOW_CONNECTIONS must be back to true.
@@ -160,7 +160,7 @@ class TestConnections:
         self,
         pg_info: dict,
         maintenance_conn: psycopg.Connection,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         Even when TerminationTimeout propagates, the `finally` in

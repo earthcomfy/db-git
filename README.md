@@ -1,12 +1,12 @@
-# git-db
+# db-git
 
-[![CI](https://github.com/earthcomfy/git-db/actions/workflows/test.yml/badge.svg)](https://github.com/earthcomfy/git-db/actions/workflows/test.yml)
-[![Python](https://img.shields.io/pypi/pyversions/git-db.svg)](https://pypi.org/project/git-db/)
+[![CI](https://github.com/earthcomfy/db-git/actions/workflows/test.yml/badge.svg)](https://github.com/earthcomfy/db-git/actions/workflows/test.yml)
+[![Python](https://img.shields.io/pypi/pyversions/db-git.svg)](https://pypi.org/project/db-git/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Keep your database in sync with your git branches.
 
-`git-db` is a developer tool for projects where database state follows code
+`db-git` is a developer tool for projects where database state follows code
 changes: schema migrations, seed data, experimental feature work, and branch
 switching during reviews. It installs a git `post-checkout` hook and keeps your
 local database aligned with the branch you are working on.
@@ -26,19 +26,19 @@ local database aligned with the branch you are working on.
   - `pgdump`: portable snapshots using `pg_dump` and `pg_restore`
 - Manual `save`, `restore`, `create`, `reset`, `list`, `status`, and `prune`
   commands
-- Safe hook behavior: checkout is never blocked by git-db failures
-- Rich terminal output and local state stored under `.git/git-db/`
+- Safe hook behavior: checkout is never blocked by db-git failures
+- Rich terminal output and local state stored under `.git/db-git/`
 
 ## Quick Start
 
 ```bash
-uv tool install git-db # or pip install git-db
+uv tool install db-git # or pip install db-git
 ```
 
 Run this from inside a git repository:
 
 ```bash
-git-db init --database-url postgresql://postgres:postgres@localhost:5432/myapp
+db-git init --database-url postgresql://postgres:postgres@localhost:5432/myapp
 ```
 
 Interactive init will ask:
@@ -54,10 +54,10 @@ After setup, switch branches normally:
 git checkout feature/auth
 ```
 
-In `shared` mode, git-db saves the previous branch database and restores the
+In `shared` mode, db-git saves the previous branch database and restores the
 new branch snapshot if one exists.
 
-In `per-branch` mode, git-db creates or selects a database named from the
+In `per-branch` mode, db-git creates or selects a database named from the
 current branch, for example:
 
 ```text
@@ -78,7 +78,7 @@ Use this when:
 
 - You want one familiar local database name
 - You want branch-specific snapshots
-- You are comfortable with git-db dropping and restoring that local database
+- You are comfortable with db-git dropping and restoring that local database
   during branch switches
 
 ### Per-Branch Mode
@@ -117,13 +117,13 @@ not available. It requires PostgreSQL client tools to be installed locally.
 ### Initialize
 
 ```bash
-git-db init --database-url postgresql://user:password@localhost:5432/myapp
+db-git init --database-url postgresql://user:password@localhost:5432/myapp
 ```
 
 Useful options:
 
 ```bash
-git-db init \
+db-git init \
   --database-url postgresql://user:password@localhost:5432/myapp \
   --mode per-branch \
   --strategy template \
@@ -133,14 +133,14 @@ git-db init \
 Skip hook installation:
 
 ```bash
-git-db init --database-url postgresql://localhost/myapp --no-hook
+db-git init --database-url postgresql://localhost/myapp --no-hook
 ```
 
 ### Inspect State
 
 ```bash
-git-db status
-git-db list
+db-git status
+db-git list
 ```
 
 ### Shared Mode Commands
@@ -148,20 +148,20 @@ git-db list
 Save the current branch database:
 
 ```bash
-git-db save
+db-git save
 ```
 
 Restore the current branch database:
 
 ```bash
-git-db restore
+db-git restore
 ```
 
 Save or restore a specific branch:
 
 ```bash
-git-db save main
-git-db restore feature/auth
+db-git save main
+db-git restore feature/auth
 ```
 
 ### Per-Branch Commands
@@ -169,13 +169,13 @@ git-db restore feature/auth
 Create a branch database before checking out the branch:
 
 ```bash
-git-db create feature/auth
+db-git create feature/auth
 ```
 
 Drop and recreate a branch database from the seed database:
 
 ```bash
-git-db reset feature/auth
+db-git reset feature/auth
 ```
 
 The default branch database cannot be reset because it is the seed for other
@@ -186,13 +186,13 @@ branch databases.
 Preview stale snapshots or branch databases:
 
 ```bash
-git-db prune --dry-run
+db-git prune --dry-run
 ```
 
 Remove stale snapshots or branch databases:
 
 ```bash
-git-db prune --yes
+db-git prune --yes
 ```
 
 ### Hook Management
@@ -200,31 +200,31 @@ git-db prune --yes
 Install or reinstall the checkout hook:
 
 ```bash
-git-db hook install
+db-git hook install
 ```
 
 Remove the checkout hook:
 
 ```bash
-git-db hook remove
+db-git hook remove
 ```
 
-Temporarily disable git-db without removing the hook:
+Temporarily disable db-git without removing the hook:
 
 ```bash
-git-db disable
-git-db enable
+db-git disable
+db-git enable
 ```
 
 You can also skip hook behavior for a single checkout:
 
 ```bash
-GIT_DB_SKIP=1 git checkout other-branch
+DB_GIT_SKIP=1 git checkout other-branch
 ```
 
 ## Configuration
 
-`git-db init` writes `.git-db.toml` at the repository root.
+`db-git init` writes `.db-git.toml` at the repository root.
 
 Example:
 
@@ -245,14 +245,14 @@ Supported configuration keys:
 | `default_branch` | Seed branch for per-branch mode | `main` |
 | `strategy` | `template` or `pgdump` | required |
 | `on_active_connections` | `terminate` or `fail` | `terminate` |
-| `snapshot_dir` | Shared-mode snapshot metadata/dump directory | `.git/git-db/snapshots` |
+| `snapshot_dir` | Shared-mode snapshot metadata/dump directory | `.git/db-git/snapshots` |
 | `max_snapshots` | Snapshot count kept by prune logic | `20` |
 | `force_terminate_timeout_ms` | Active connection termination timeout | `5000` |
 
 Configuration precedence:
 
 1. Built-in defaults
-2. `.git-db.toml`
+2. `.db-git.toml`
 3. Environment variables
 4. CLI options
 
@@ -260,16 +260,16 @@ Environment variables:
 
 ```bash
 DATABASE_URL
-GIT_DB_DATABASE_URL
-GIT_DB_MODE
-GIT_DB_STRATEGY
-GIT_DB_ON_ACTIVE_CONNECTIONS
-GIT_DB_SNAPSHOT_DIR
-GIT_DB_MAX_SNAPSHOTS
-GIT_DB_FORCE_TERMINATE_TIMEOUT_MS
+DB_GIT_DATABASE_URL
+DB_GIT_MODE
+DB_GIT_STRATEGY
+DB_GIT_ON_ACTIVE_CONNECTIONS
+DB_GIT_SNAPSHOT_DIR
+DB_GIT_MAX_SNAPSHOTS
+DB_GIT_FORCE_TERMINATE_TIMEOUT_MS
 ```
 
-`GIT_DB_DATABASE_URL` takes precedence over `DATABASE_URL`.
+`DB_GIT_DATABASE_URL` takes precedence over `DATABASE_URL`.
 
 ### Active connections block an operation
 
@@ -285,24 +285,24 @@ on_active_connections = "terminate"
 Your PostgreSQL user may need superuser privileges or membership in
 `pg_signal_backend` to terminate sessions owned by other users.
 
-### Temporarily skip git-db
+### Temporarily skip db-git
 
 ```bash
-git-db disable
+db-git disable
 git checkout some-branch
-git-db enable
+db-git enable
 ```
 
 Or for one command:
 
 ```bash
-GIT_DB_SKIP=1 git checkout some-branch
+DB_GIT_SKIP=1 git checkout some-branch
 ```
 
 ### Show full tracebacks
 
 ```bash
-GIT_DB_DEBUG=1 git-db status
+DB_GIT_DEBUG=1 db-git status
 ```
 
 ## Development

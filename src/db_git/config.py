@@ -7,7 +7,7 @@ from pathlib import Path
 
 import tomlkit
 
-from git_db.errors import ConfigError
+from db_git.errors import ConfigError
 
 VALID_CONNECTION_POLICIES = {"terminate", "fail"}
 VALID_MODES = {"shared", "per-branch"}
@@ -16,7 +16,7 @@ VALID_STRATEGIES = {"template", "pgdump"}
 _CONFIG_COMMENTS: dict[str, str] = {
     "database_url": "Database connection URL.",
     "mode": (
-        "How git-db manages databases across branches.\n"
+        "How db-git manages databases across branches.\n"
         '# "shared": one database, snapshot/restore on switch\n'
         '# "per-branch": each branch gets its own database'
     ),
@@ -40,9 +40,9 @@ _CONFIG_COMMENTS: dict[str, str] = {
 
 
 @dataclass
-class GitDbConfig:
+class DbGitConfig:
     """
-    git-db configuration.
+    db-git configuration.
     """
 
     database_url: str = ""
@@ -50,7 +50,7 @@ class GitDbConfig:
     default_branch: str = "main"
     strategy: str = ""
     on_active_connections: str = "terminate"
-    snapshot_dir: Path = field(default_factory=lambda: Path(".git/git-db/snapshots"))
+    snapshot_dir: Path = field(default_factory=lambda: Path(".git/db-git/snapshots"))
     max_snapshots: int = 20
     force_terminate_timeout_ms: int = 5000
 
@@ -58,14 +58,14 @@ class GitDbConfig:
 def load_config(
     cli_overrides: dict[str, object] | None = None,
     project_root: Path | None = None,
-) -> GitDbConfig:
+) -> DbGitConfig:
     """
-    Load configuration with precedence: defaults < .git-db.toml < env vars < CLI.
+    Load configuration with precedence: defaults < .db-git.toml < env vars < CLI.
     """
     root = project_root or find_project_root()
     merged: dict[str, object] = {}
 
-    # Layer 1: .git-db.toml
+    # Layer 1: .db-git.toml
     if root:
         merged.update(load_dotfile_config(root))
 
@@ -96,11 +96,11 @@ def find_project_root() -> Path | None:
 
 def load_dotfile_config(root: Path) -> dict[str, object]:
     """
-    Read raw key/value pairs from .git-db.toml.
+    Read raw key/value pairs from .db-git.toml.
 
     Returns {} if absent or unparseable.
     """
-    dotfile = root / ".git-db.toml"
+    dotfile = root / ".db-git.toml"
     if not dotfile.exists():
         return {}
     try:
@@ -117,13 +117,13 @@ def _load_env_vars() -> dict[str, object]:
     """
     env_map: list[tuple[str, str]] = [
         ("DATABASE_URL", "database_url"),
-        ("GIT_DB_DATABASE_URL", "database_url"),
-        ("GIT_DB_MODE", "mode"),
-        ("GIT_DB_STRATEGY", "strategy"),
-        ("GIT_DB_ON_ACTIVE_CONNECTIONS", "on_active_connections"),
-        ("GIT_DB_SNAPSHOT_DIR", "snapshot_dir"),
-        ("GIT_DB_MAX_SNAPSHOTS", "max_snapshots"),
-        ("GIT_DB_FORCE_TERMINATE_TIMEOUT_MS", "force_terminate_timeout_ms"),
+        ("DB_GIT_DATABASE_URL", "database_url"),
+        ("DB_GIT_MODE", "mode"),
+        ("DB_GIT_STRATEGY", "strategy"),
+        ("DB_GIT_ON_ACTIVE_CONNECTIONS", "on_active_connections"),
+        ("DB_GIT_SNAPSHOT_DIR", "snapshot_dir"),
+        ("DB_GIT_MAX_SNAPSHOTS", "max_snapshots"),
+        ("DB_GIT_FORCE_TERMINATE_TIMEOUT_MS", "force_terminate_timeout_ms"),
     ]
     result: dict[str, object] = {}
     for env_key, config_key in env_map:
@@ -133,11 +133,11 @@ def _load_env_vars() -> dict[str, object]:
     return result
 
 
-def _build_config(merged: dict[str, object]) -> GitDbConfig:
+def _build_config(merged: dict[str, object]) -> DbGitConfig:
     """
-    Build a GitDbConfig from the merged configuration dict.
+    Build a DbGitConfig from the merged configuration dict.
     """
-    config = GitDbConfig()
+    config = DbGitConfig()
 
     if "database_url" in merged:
         config.database_url = str(merged["database_url"])
@@ -179,13 +179,13 @@ def _build_config(merged: dict[str, object]) -> GitDbConfig:
     return config
 
 
-def _validate_config(config: GitDbConfig) -> None:
+def _validate_config(config: DbGitConfig) -> None:
     """
     Validate configuration values. Raises ConfigError on invalid values.
     """
     if not config.database_url:
         raise ConfigError(
-            "No database URL configured. Run 'git-db init' or set DATABASE_URL."
+            "No database URL configured. Run 'db-git init' or set DATABASE_URL."
         )
 
     if config.mode not in VALID_MODES:
@@ -196,7 +196,7 @@ def _validate_config(config: GitDbConfig) -> None:
 
     if config.strategy not in VALID_STRATEGIES:
         raise ConfigError(
-            "Strategy not configured. Run 'git-db init' to set up git-db."
+            "Strategy not configured. Run 'db-git init' to set up db-git."
         )
 
     if config.on_active_connections not in VALID_CONNECTION_POLICIES:
@@ -208,9 +208,9 @@ def _validate_config(config: GitDbConfig) -> None:
 
 def write_config(project_root: Path, updates: dict[str, object]) -> None:
     """
-    Write or update .git-db.toml with the given key-value pairs.
+    Write or update .db-git.toml with the given key-value pairs.
     """
-    dotfile = project_root / ".git-db.toml"
+    dotfile = project_root / ".db-git.toml"
 
     doc = tomlkit.parse(dotfile.read_text()) if dotfile.exists() else tomlkit.document()
 
@@ -224,10 +224,10 @@ def write_config(project_root: Path, updates: dict[str, object]) -> None:
 
 def ensure_config_ignored(project_root: Path) -> bool:
     """
-    Ensure the local git-db config file is ignored by git.
+    Ensure the local db-git config file is ignored by git.
     """
     gitignore = project_root / ".gitignore"
-    entry = ".git-db.toml"
+    entry = ".db-git.toml"
 
     if gitignore.exists():
         lines = gitignore.read_text().splitlines()
@@ -237,7 +237,7 @@ def ensure_config_ignored(project_root: Path) -> bool:
         with gitignore.open("a") as f:
             if needs_leading_newline:
                 f.write("\n")
-            f.write(f"# Local git-db configuration\n{entry}\n")
+            f.write(f"# Local db-git configuration\n{entry}\n")
     else:
-        gitignore.write_text(f"# Local git-db configuration\n{entry}\n")
+        gitignore.write_text(f"# Local db-git configuration\n{entry}\n")
     return True

@@ -10,15 +10,15 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 
-from git_db.backends import DatabaseBackend, get_backend
-from git_db.db import parse_database_url
-from git_db.errors import HookError
-from git_db.hook_script import HOOK_IDENTIFIER, render_hook_script
-from git_db.state import get_branch_db
-from git_db.storage import branch_db_name, has_snapshot
+from db_git.backends import DatabaseBackend, get_backend
+from db_git.db import parse_database_url
+from db_git.errors import HookError
+from db_git.hook_script import HOOK_IDENTIFIER, render_hook_script
+from db_git.state import get_branch_db
+from db_git.storage import branch_db_name, has_snapshot
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
+    from db_git.config import DbGitConfig
 
 console = Console(stderr=True)
 
@@ -131,13 +131,13 @@ def install_hook(git_dir: Path) -> None:
     """
     hooks_dir = git_dir / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    git_db_executable = _resolve_git_db_executable()
+    db_git_executable = _resolve_db_git_executable()
 
     try:
         _write_managed_hook(
             hooks_dir,
             "post-checkout",
-            render_hook_script(git_db_executable),
+            render_hook_script(db_git_executable),
         )
     except OSError as e:
         raise HookError(f"Failed to install hook: {e}") from e
@@ -145,14 +145,14 @@ def install_hook(git_dir: Path) -> None:
 
 def remove_hook(git_dir: Path) -> None:
     """
-    Remove the git-db post-checkout hook.
+    Remove the db-git post-checkout hook.
     """
     hooks_dir = git_dir / "hooks"
     hook_path = hooks_dir / "post-checkout"
     legacy_path = hooks_dir / "post-checkout.legacy"
 
     if not hook_path.exists() or HOOK_IDENTIFIER not in hook_path.read_text():
-        raise HookError("No git-db hook found in .git/hooks/post-checkout.")
+        raise HookError("No db-git hook found in .git/hooks/post-checkout.")
 
     try:
         hook_path.unlink()
@@ -166,7 +166,7 @@ def remove_hook(git_dir: Path) -> None:
 def handle_post_checkout(
     prev_head: str,
     is_branch: str,
-    config: GitDbConfig,
+    config: DbGitConfig,
 ) -> None:
     """
     Handle a post-checkout event. Called by the _hook-dispatch CLI command.
@@ -211,10 +211,10 @@ def handle_post_checkout(
                     f"[dim]No snapshot for '{curr_branch}': database unchanged[/]"
                 )
     except Exception as e:
-        console.print(f"[yellow]git-db warning:[/] {e}")
+        console.print(f"[yellow]db-git warning:[/] {e}")
 
 
-def _try_save(backend: DatabaseBackend, config: GitDbConfig, branch: str) -> None:
+def _try_save(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> None:
     """
     Attempt to save a snapshot.
     """
@@ -227,7 +227,7 @@ def _try_save(backend: DatabaseBackend, config: GitDbConfig, branch: str) -> Non
         _print_superuser_hint(e, config.database_url)
 
 
-def _try_restore(backend: DatabaseBackend, config: GitDbConfig, branch: str) -> None:
+def _try_restore(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> None:
     """
     Attempt to restore a snapshot.
     """
@@ -265,7 +265,7 @@ def _print_superuser_hint(error: Exception, db_url: str) -> None:
 
 
 def _handle_per_branch_checkout(
-    config: GitDbConfig,
+    config: DbGitConfig,
     git_dir: Path,
     prev_branch: str | None,
     curr_branch: str | None,
@@ -317,20 +317,20 @@ def _handle_per_branch_checkout(
         manager.create(target_db, source_db, curr_branch, created_from, git_dir)
         console.print(f"[green]Created database:[/] {target_db}")
     except Exception as e:
-        console.print(f"[yellow]git-db warning:[/] Could not create '{target_db}': {e}")
+        console.print(f"[yellow]db-git warning:[/] Could not create '{target_db}': {e}")
         return
 
     console.print(f"[dim]Branch database:[/] {target_db}")
 
 
-def _resolve_git_db_executable() -> str:
+def _resolve_db_git_executable() -> str:
     """
     Return the executable path the hook should call.
     """
     current = Path(sys.argv[0])
-    if current.name == "git-db" and current.exists():
+    if current.name == "db-git" and current.exists():
         return str(current.resolve())
-    found = shutil.which("git-db")
+    found = shutil.which("db-git")
     if found:
         return str(Path(found).resolve())
     return ""

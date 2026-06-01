@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from git_db.db import parse_database_url
+from db_git.db import parse_database_url
 
 
 class TestParseDatabaseUrl:

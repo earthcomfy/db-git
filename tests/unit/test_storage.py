@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from git_db.storage import (
+from db_git.storage import (
     SnapshotMetadata,
     branch_db_name,
     has_snapshot,
@@ -67,7 +67,7 @@ class TestStorage:
             created_at=created_at,
             engine="postgresql",
             engine_version="16",
-            git_db_version="0.1.0",
+            db_git_version="0.1.0",
             file_size_bytes=100,
         )
         write_metadata(snapshot_dir, meta)
@@ -85,12 +85,12 @@ class TestStorage:
         assert sanitize_branch_name("") == "unnamed"
 
     def test_basic(self):
-        assert snapshot_db_name("main", "myapp") == "_gitdb_myapp_main"
+        assert snapshot_db_name("main", "myapp") == "_dbgit_myapp_main"
 
     def test_truncates_long_branch_to_fit(self):
         result = snapshot_db_name("a" * 100, "db")
         assert len(result) <= 63
-        assert result.startswith("_gitdb_db_")
+        assert result.startswith("_dbgit_db_")
 
     def test_dump_path(self, tmp_path: Path):
         assert (

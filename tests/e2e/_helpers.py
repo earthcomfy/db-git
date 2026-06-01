@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import subprocess
 
-from tests._pg_helpers import git_commit_file, run_git, run_git_db
+from tests._pg_helpers import git_commit_file, run_db_git, run_git
 
 
 def run_init(
     cli_env: dict, mode: str, strategy: str, *extra: str
 ) -> subprocess.CompletedProcess:
     """
-    Invoke `git-db init --mode <mode> --strategy <strategy>` via subprocess.
+    Invoke `db-git init --mode <mode> --strategy <strategy>` via subprocess.
     """
-    return run_git_db(
+    return run_db_git(
         "init",
         "--database-url",
         cli_env["db_url"],

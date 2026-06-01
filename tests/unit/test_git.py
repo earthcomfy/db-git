@@ -4,9 +4,9 @@ import os
 
 import pytest
 
-from git_db.errors import HookError
-from git_db.git import install_hook, remove_hook
-from git_db.hook_script import HOOK_IDENTIFIER
+from db_git.errors import HookError
+from db_git.git import install_hook, remove_hook
+from db_git.hook_script import HOOK_IDENTIFIER
 
 
 class TestGit:
@@ -71,5 +71,5 @@ class TestGit:
 
     def test_remove_hook_raises_when_no_managed_hook(self, git_repo):
         git_dir = git_repo / ".git"
-        with pytest.raises(HookError, match="No git-db hook found"):
+        with pytest.raises(HookError, match="No db-git hook found"):
             remove_hook(git_dir)

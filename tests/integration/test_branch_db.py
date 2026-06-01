@@ -7,11 +7,11 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from git_db.backends.postgresql.backend import PostgresqlBackend
-from git_db.backends.postgresql.branch_db import PostgresBranchDbManager
-from git_db.config import GitDbConfig
-from git_db.errors import ActiveConnectionsError
-from git_db.state import load_state, record_branch_db
+from db_git.backends.postgresql.backend import PostgresqlBackend
+from db_git.backends.postgresql.branch_db import PostgresBranchDbManager
+from db_git.config import DbGitConfig
+from db_git.errors import ActiveConnectionsError
+from db_git.state import load_state, record_branch_db
 from tests._pg_helpers import build_url, get_names, reconnect, seed_users
 
 
@@ -135,7 +135,7 @@ class TestPostgresBranchDbManager:
         pg_info: dict,
         git_dir: Path,
         backend: PostgresqlBackend,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         fail policy: an active connection to the branch DB blocks drop.

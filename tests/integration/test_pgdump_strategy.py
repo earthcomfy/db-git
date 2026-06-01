@@ -6,10 +6,10 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from git_db.backends.postgresql.pgdump import PgDumpStrategy
-from git_db.config import GitDbConfig
-from git_db.errors import SnapshotError
-from git_db.storage import has_snapshot, read_metadata
+from db_git.backends.postgresql.pgdump import PgDumpStrategy
+from db_git.config import DbGitConfig
+from db_git.errors import SnapshotError
+from db_git.storage import has_snapshot, read_metadata
 from tests._pg_helpers import get_names, reconnect, seed_users
 
 
@@ -19,7 +19,7 @@ class TestPgDumpStrategy:
         self,
         pg_info: dict,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         config = make_config(strategy="pgdump")
         seed_users(config.database_url)
@@ -55,7 +55,7 @@ class TestPgDumpStrategy:
     def test_restore_raises_when_dump_file_missing(
         self,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         config = make_config(strategy="pgdump")
         config.snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -71,7 +71,7 @@ class TestPgDumpStrategy:
     def test_cleanup_removes_dump_and_meta(
         self,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         config = make_config(strategy="pgdump")
         seed_users(config.database_url)
@@ -90,7 +90,7 @@ class TestPgDumpStrategy:
     def test_save_creates_missing_snapshot_dir(
         self,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
         tmp_path: Path,
     ) -> None:
         """
@@ -114,7 +114,7 @@ class TestPgDumpStrategy:
     def test_save_overwrites_existing_snapshot(
         self,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         A second save() on the same branch replaces the first dump+meta.
@@ -162,7 +162,7 @@ class TestPgDumpStrategy:
     def test_empty_database_round_trip(
         self,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         Save + restore on an empty DB should succeed and leave it empty.
@@ -201,7 +201,7 @@ class TestPgDumpStrategy:
     def test_save_round_trips_ddl_constraints_and_sequences(
         self,
         pgdump_strategy: PgDumpStrategy,
-        make_config: Callable[..., GitDbConfig],
+        make_config: Callable[..., DbGitConfig],
     ) -> None:
         """
         The dump must preserve non-trivial schema: primary key, unique

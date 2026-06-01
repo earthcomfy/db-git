@@ -1,46 +1,46 @@
-class GitDbError(Exception):
+class DbGitError(Exception):
     """
-    Base exception for all git-db errors.
+    Base exception for all db-git errors.
     """
 
 
-class ConfigError(GitDbError):
+class ConfigError(DbGitError):
     """
     Invalid or missing configuration.
     """
 
 
-class DatabaseError(GitDbError):
+class DatabaseError(DbGitError):
     """
     Connection or query failures.
     """
 
 
-class SnapshotError(GitDbError):
+class SnapshotError(DbGitError):
     """
     Save/restore failures.
     """
 
 
-class ToolNotFoundError(GitDbError):
+class ToolNotFoundError(DbGitError):
     """
     Database tool (pg_dump, pg_restore, etc.) not found in PATH.
     """
 
 
-class ActiveConnectionsError(GitDbError):
+class ActiveConnectionsError(DbGitError):
     """
     Active connections exist and policy is 'fail'.
     """
 
 
-class TerminationTimeout(GitDbError):
+class TerminationTimeout(DbGitError):
     """
     Connection terminate loop exceeded deadline.
     """
 
 
-class HookError(GitDbError):
+class HookError(DbGitError):
     """
     Hook install/remove failures.
     """

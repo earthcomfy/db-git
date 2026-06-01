@@ -9,7 +9,7 @@ from pathlib import Path
 @dataclass
 class BranchDbEntry:
     """
-    Record of a per-branch database created by git-db.
+    Record of a per-branch database created by db-git.
     """
 
     db_name: str
@@ -18,16 +18,16 @@ class BranchDbEntry:
 
 
 @dataclass
-class GitDbState:
+class DbGitState:
     """
-    Persistent state tracked in .git/git-db/state.json.
+    Persistent state tracked in .git/db-git/state.json.
     """
 
     mode: str = "per-branch"
     databases: dict[str, BranchDbEntry] = field(default_factory=dict)
 
 
-_STATE_DIR = "git-db"
+_STATE_DIR = "db-git"
 _STATE_FILE = "state.json"
 
 
@@ -35,29 +35,29 @@ def _state_path(git_dir: Path) -> Path:
     return git_dir / _STATE_DIR / _STATE_FILE
 
 
-def load_state(git_dir: Path) -> GitDbState:
+def load_state(git_dir: Path) -> DbGitState:
     """
-    Read state from .git/git-db/state.json.
+    Read state from .git/db-git/state.json.
     """
     path = _state_path(git_dir)
     if not path.exists():
-        return GitDbState()
+        return DbGitState()
     try:
         data = json.loads(path.read_text())
         databases: dict[str, BranchDbEntry] = {}
         for branch, entry in data.get("databases", {}).items():
             databases[branch] = BranchDbEntry(**entry)
-        return GitDbState(
+        return DbGitState(
             mode=data.get("mode", "per-branch"),
             databases=databases,
         )
     except (json.JSONDecodeError, TypeError, KeyError):
-        return GitDbState()
+        return DbGitState()
 
 
-def save_state(git_dir: Path, state: GitDbState) -> None:
+def save_state(git_dir: Path, state: DbGitState) -> None:
     """
-    Write state to .git/git-db/state.json.
+    Write state to .git/db-git/state.json.
     """
     path = _state_path(git_dir)
     path.parent.mkdir(parents=True, exist_ok=True)

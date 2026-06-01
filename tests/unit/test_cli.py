@@ -9,14 +9,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from git_db.backends.postgresql.backend import PgPermissions, PostgresqlBackend
-from git_db.backends.postgresql.branch_db import PostgresBranchDbManager
-from git_db.backends.postgresql.template import TemplateStrategy
-from git_db.cli import app
-from git_db.errors import DatabaseError, SnapshotError
-from git_db.hook_script import render_hook_script
-from git_db.state import record_branch_db
-from git_db.storage import has_snapshot, make_metadata, write_metadata
+from db_git.backends.postgresql.backend import PgPermissions, PostgresqlBackend
+from db_git.backends.postgresql.branch_db import PostgresBranchDbManager
+from db_git.backends.postgresql.template import TemplateStrategy
+from db_git.cli import app
+from db_git.errors import DatabaseError, SnapshotError
+from db_git.hook_script import render_hook_script
+from db_git.state import record_branch_db
+from db_git.storage import has_snapshot, make_metadata, write_metadata
 
 runner = CliRunner()
 
@@ -24,7 +24,7 @@ runner = CliRunner()
 @pytest.fixture
 def setup_config() -> Callable[..., None]:
     """
-    Factory: write .git-db.toml with optional mode/strategy overrides.
+    Factory: write .db-git.toml with optional mode/strategy overrides.
     """
 
     def _setup(
@@ -34,7 +34,7 @@ def setup_config() -> Callable[..., None]:
         strategy: str = "template",
     ) -> None:
         (path / ".git").mkdir(exist_ok=True)
-        (path / ".git-db.toml").write_text(
+        (path / ".db-git.toml").write_text(
             'database_url = "postgresql://postgres:postgres@localhost:5432/testdb"\n'
             f'strategy = "{strategy}"\n'
             f'mode = "{mode}"\n'
@@ -59,7 +59,7 @@ def setup_with_snapshots(
         strategy: str = "template",
     ) -> None:
         setup_config(path, mode=mode, strategy=strategy)
-        snapshot_dir = path / ".git" / "git-db" / "snapshots"
+        snapshot_dir = path / ".git" / "db-git" / "snapshots"
         for branch in branches:
             meta = make_metadata(
                 branch=branch,
@@ -101,7 +101,7 @@ class TestInit:
 
             hook = git_repo / ".git" / "hooks" / "post-checkout"
             assert hook.exists()
-            assert ".git-db.toml" in (git_repo / ".gitignore").read_text()
+            assert ".db-git.toml" in (git_repo / ".gitignore").read_text()
         finally:
             os.chdir(old_cwd)
 
@@ -161,7 +161,7 @@ class TestInit:
             assert result.exit_code == 0
             assert "initialized" in result.output
 
-            toml = tomllib.loads((git_repo / ".git-db.toml").read_text())
+            toml = tomllib.loads((git_repo / ".db-git.toml").read_text())
             assert toml["database_url"] == "postgresql://localhost/testdb"
             assert toml["mode"] == "shared"
             assert toml["strategy"] == "pgdump"
@@ -189,7 +189,7 @@ class TestInit:
             )
             assert result.exit_code == 0
 
-            toml = tomllib.loads((git_repo / ".git-db.toml").read_text())
+            toml = tomllib.loads((git_repo / ".db-git.toml").read_text())
             assert toml["mode"] == "per-branch"
             assert "default_branch" in toml
             assert toml["default_branch"]
@@ -224,7 +224,7 @@ class TestInit:
             os.chdir(old_cwd)
 
     def test_reinit_shows_update_message(self, git_repo, setup_config):
-        setup_config(git_repo)  # Pre-existing .git-db.toml
+        setup_config(git_repo)  # Pre-existing .db-git.toml
         old_cwd = os.getcwd()
         os.chdir(git_repo)
         try:
@@ -245,7 +245,7 @@ class TestInit:
             assert result.exit_code == 0
             assert "Updating existing configuration" in result.output
 
-            toml = tomllib.loads((git_repo / ".git-db.toml").read_text())
+            toml = tomllib.loads((git_repo / ".db-git.toml").read_text())
             assert toml["database_url"] == "postgresql://localhost/updated_db"
             assert toml["strategy"] == "pgdump"
         finally:
@@ -292,7 +292,7 @@ class TestSave:
             result = runner.invoke(app, ["save"])
             assert result.exit_code == 1
             assert "not initialized" in result.output
-            assert "git-db init" in result.output
+            assert "db-git init" in result.output
         finally:
             os.chdir(old_cwd)
 
@@ -492,7 +492,7 @@ class TestPrune:
             assert "Would remove" in result.output
             assert "stale-branch" in result.output
 
-            snapshot_dir = git_repo / ".git" / "git-db" / "snapshots"
+            snapshot_dir = git_repo / ".git" / "db-git" / "snapshots"
             assert has_snapshot(snapshot_dir, "stale-branch")
         finally:
             os.chdir(old_cwd)
@@ -511,7 +511,7 @@ class TestPrune:
             assert result.exit_code == 0
             assert "Pruned" in result.output
 
-            snapshot_dir = git_repo / ".git" / "git-db" / "snapshots"
+            snapshot_dir = git_repo / ".git" / "db-git" / "snapshots"
             assert not has_snapshot(snapshot_dir, "stale-branch")
             assert has_snapshot(snapshot_dir, "main")
         finally:
@@ -529,7 +529,7 @@ class TestPrune:
             assert "non-interactive" in result.output
             assert "--yes" in result.output
 
-            snapshot_dir = git_repo / ".git" / "git-db" / "snapshots"
+            snapshot_dir = git_repo / ".git" / "db-git" / "snapshots"
             assert has_snapshot(snapshot_dir, "stale-branch")
         finally:
             os.chdir(old_cwd)
@@ -540,7 +540,7 @@ class TestPrune:
         os.chdir(git_repo)
         try:
             result = runner.invoke(app, ["prune"], input="n\n")
-            snapshot_dir = git_repo / ".git" / "git-db" / "snapshots"
+            snapshot_dir = git_repo / ".git" / "db-git" / "snapshots"
             assert has_snapshot(snapshot_dir, "stale-branch")
             assert "Pruned" not in result.output
         finally:
@@ -594,7 +594,7 @@ class TestCreate:
         try:
             result = runner.invoke(app, ["create", "feature"])
             assert result.exit_code == 0
-            assert "git-db save" in result.output
+            assert "db-git save" in result.output
         finally:
             os.chdir(old_cwd)
 
@@ -608,7 +608,7 @@ class TestCreate:
 
             assert result.exit_code == 1
             assert "already exists" in result.output
-            assert "git-db reset" in result.output
+            assert "db-git reset" in result.output
         finally:
             os.chdir(old_cwd)
 
@@ -638,7 +638,7 @@ class TestReset:
         try:
             result = runner.invoke(app, ["reset", "feature"])
             assert result.exit_code == 0
-            assert "git-db restore" in result.output
+            assert "db-git restore" in result.output
         finally:
             os.chdir(old_cwd)
 
@@ -703,8 +703,8 @@ class TestHook:
 
     def test_script_contains_skip_checks(self):
         script = render_hook_script()
-        assert "GIT_DB_SKIP" in script
-        assert "git-db/disabled" in script
+        assert "DB_GIT_SKIP" in script
+        assert "db-git/disabled" in script
 
 
 class TestDisable:
@@ -715,7 +715,7 @@ class TestDisable:
             result = runner.invoke(app, ["disable"])
             assert result.exit_code == 0
             assert "disabled" in result.output
-            assert (git_repo / ".git" / "git-db" / "disabled").exists()
+            assert (git_repo / ".git" / "db-git" / "disabled").exists()
         finally:
             os.chdir(old_cwd)
 
@@ -729,7 +729,7 @@ class TestEnable:
             result = runner.invoke(app, ["enable"])
             assert result.exit_code == 0
             assert "enabled" in result.output
-            assert not (git_repo / ".git" / "git-db" / "disabled").exists()
+            assert not (git_repo / ".git" / "db-git" / "disabled").exists()
         finally:
             os.chdir(old_cwd)
 

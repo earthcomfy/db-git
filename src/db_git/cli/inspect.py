@@ -6,13 +6,13 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from git_db.backends import DatabaseBackend, SnapshotStrategy, get_backend
-from git_db.config import GitDbConfig, load_config
-from git_db.db import parse_database_url
-from git_db.errors import GitDbError
-from git_db.git import get_current_branch, get_git_dir, list_branches
-from git_db.state import load_state
-from git_db.storage import (
+from db_git.backends import DatabaseBackend, SnapshotStrategy, get_backend
+from db_git.config import DbGitConfig, load_config
+from db_git.db import parse_database_url
+from db_git.errors import DbGitError
+from db_git.git import get_current_branch, get_git_dir, list_branches
+from db_git.state import load_state
+from db_git.storage import (
     branch_db_name,
     has_snapshot,
     identify_stale_snapshots,
@@ -39,7 +39,7 @@ def list_cmd(
     require_init()
     try:
         config = load_config(cli_overrides={"database_url": database_url})
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
 
@@ -135,7 +135,7 @@ def prune(
 
         if pruned:
             console.print(f"\nRemoved {pruned} snapshot(s).")
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -145,7 +145,7 @@ def prune(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e
 
@@ -184,8 +184,8 @@ def status(
             f"  Current:    {current_status}\n"
             f"  Enabled:    {enabled_status}"
         )
-        console.print(Panel(summary, title="git-db status", border_style="blue"))
-    except GitDbError as e:
+        console.print(Panel(summary, title="db-git status", border_style="blue"))
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -195,12 +195,12 @@ def status(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e
 
 
-def _list_per_branch(config: GitDbConfig) -> None:
+def _list_per_branch(config: DbGitConfig) -> None:
     """
     List branch databases in per-branch mode.
     """
@@ -247,7 +247,7 @@ def _list_per_branch(config: GitDbConfig) -> None:
     console.print(table)
 
 
-def _prune_per_branch(config: GitDbConfig, dry_run: bool, yes: bool) -> None:
+def _prune_per_branch(config: DbGitConfig, dry_run: bool, yes: bool) -> None:
     """
     Prune stale branch databases in per-branch mode.
     """
@@ -297,7 +297,7 @@ def _prune_per_branch(config: GitDbConfig, dry_run: bool, yes: bool) -> None:
             manager.drop(entry.db_name, branch_name, git_dir)
             console.print(f"  Dropped: {entry.db_name} ({branch_name})")
             pruned += 1
-        except GitDbError as e:
+        except DbGitError as e:
             console.print(f"  [yellow]Failed to drop {entry.db_name}:[/] {e}")
 
     if pruned:
@@ -305,7 +305,7 @@ def _prune_per_branch(config: GitDbConfig, dry_run: bool, yes: bool) -> None:
 
 
 def _status_per_branch(
-    config: GitDbConfig,
+    config: DbGitConfig,
     current_branch: str,
     backend: DatabaseBackend,
     version: int,
@@ -339,7 +339,7 @@ def _status_per_branch(
 
     count_warning = ""
     if total_dbs > 20:
-        count_warning = " [yellow](consider running git-db prune)[/]"
+        count_warning = " [yellow](consider running db-git prune)[/]"
 
     enabled_status = check_enabled()
     summary = (
@@ -353,11 +353,11 @@ def _status_per_branch(
         f"  Databases:  {total_dbs}{count_warning}\n"
         f"  Enabled:    {enabled_status}"
     )
-    console.print(Panel(summary, title="git-db status", border_style="blue"))
+    console.print(Panel(summary, title="db-git status", border_style="blue"))
 
 
 def _shared_snapshot_status(
-    config: GitDbConfig,
+    config: DbGitConfig,
     backend: DatabaseBackend,
     branch: str,
     strategy_name: str,
@@ -389,7 +389,7 @@ def _shared_snapshot_status(
 
 
 def _shared_current_status(
-    config: GitDbConfig,
+    config: DbGitConfig,
     backend: DatabaseBackend,
     branch: str,
 ) -> str:

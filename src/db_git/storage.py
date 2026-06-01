@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from git_db import __version__
+from db_git import __version__
 
 _DEFAULT_MAX_IDENTIFIER = 63
 
@@ -24,7 +24,7 @@ class SnapshotMetadata:
     created_at: str
     engine: str
     engine_version: str
-    git_db_version: str
+    db_git_version: str
     file_size_bytes: int | None
 
 
@@ -69,19 +69,19 @@ def snapshot_db_name(
     max_length: int = _DEFAULT_MAX_IDENTIFIER,
 ) -> str:
     """
-    Build the snapshot database name: _gitdb_{dbname}_{sanitized_branch}.
+    Build the snapshot database name: _dbgit_{dbname}_{sanitized_branch}.
     """
     sanitized = sanitize_branch_name(branch, max_length)
-    name = f"_gitdb_{dbname}_{sanitized}"
+    name = f"_dbgit_{dbname}_{sanitized}"
     if len(name) <= max_length:
         return name
 
     branch_hash = hashlib.sha256(branch.encode("utf-8")).hexdigest()[:8]
     suffix = f"_h{branch_hash}"
-    prefix = f"_gitdb_{dbname}"
+    prefix = f"_dbgit_{dbname}"
     max_prefix_len = max_length - len(suffix)
     if max_prefix_len <= 0:
-        return f"_gitdb_h{branch_hash}"[:max_length]
+        return f"_dbgit_h{branch_hash}"[:max_length]
     return prefix[:max_prefix_len] + suffix
 
 
@@ -170,7 +170,7 @@ def make_metadata(
         created_at=datetime.now(UTC).isoformat(),
         engine=engine,
         engine_version=engine_version,
-        git_db_version=__version__,
+        db_git_version=__version__,
         file_size_bytes=file_size_bytes,
     )
 

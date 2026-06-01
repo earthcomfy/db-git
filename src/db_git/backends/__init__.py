@@ -6,15 +6,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
-from git_db.errors import ConfigError
+from db_git.errors import ConfigError
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
-    from git_db.state import BranchDbEntry
+    from db_git.config import DbGitConfig
+    from db_git.state import BranchDbEntry
 
 _BACKEND_REGISTRY: dict[str, type[DatabaseBackend]] = {}
 _BUILTIN_BACKENDS: dict[str, str] = {
-    "postgresql": "git_db.backends.postgresql.backend",
+    "postgresql": "db_git.backends.postgresql.backend",
 }
 
 
@@ -49,7 +49,7 @@ class SnapshotStrategy(Protocol):
         db_url: str,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None: ...
 
     def restore(
@@ -57,14 +57,14 @@ class SnapshotStrategy(Protocol):
         db_url: str,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None: ...
 
     def cleanup(
         self,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None: ...
 
 
@@ -112,9 +112,9 @@ class DatabaseBackend(Protocol):
 
     def get_engine_version(self, url: str) -> int: ...
 
-    def detect_strategy(self, config: GitDbConfig) -> SnapshotStrategy: ...
+    def detect_strategy(self, config: DbGitConfig) -> SnapshotStrategy: ...
 
-    def branch_db_manager(self, config: GitDbConfig) -> BranchDbManager: ...
+    def branch_db_manager(self, config: DbGitConfig) -> BranchDbManager: ...
 
     def connect_maintenance(self, params: dict[str, str | int]) -> DbConnection: ...
 

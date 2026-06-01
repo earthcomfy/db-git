@@ -5,7 +5,7 @@ import sys
 
 import typer
 
-from git_db.git import get_current_branch
+from db_git.git import get_current_branch
 
 from ._console import console
 

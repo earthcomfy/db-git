@@ -4,11 +4,11 @@ from typing import Annotated
 
 import typer
 
-from git_db.backends import get_backend
-from git_db.config import load_config
-from git_db.errors import GitDbError
-from git_db.git import get_current_branch
-from git_db.storage import has_snapshot
+from db_git.backends import get_backend
+from db_git.config import load_config
+from db_git.errors import DbGitError
+from db_git.git import get_current_branch
+from db_git.storage import has_snapshot
 
 from ._common import debug_enabled, require_init
 from ._console import app, console
@@ -32,7 +32,7 @@ def save(
             console.print(
                 "Per-branch mode: your database persists automatically. "
                 "No save needed.\n"
-                "Use [cyan]git-db create[/] to proactively create a branch DB."
+                "Use [cyan]db-git create[/] to proactively create a branch DB."
             )
             return
 
@@ -47,7 +47,7 @@ def save(
 
         detected.save(config.database_url, branch, config.snapshot_dir, config)
         console.print(f"[green]Saved[/] ({detected.name}): {branch}")
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -57,7 +57,7 @@ def save(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e
 
@@ -78,7 +78,7 @@ def restore(
 
         if config.mode == "per-branch":
             console.print(
-                "Per-branch mode: use [cyan]git-db reset[/] to recreate "
+                "Per-branch mode: use [cyan]db-git reset[/] to recreate "
                 "a branch database from seed."
             )
             return
@@ -100,7 +100,7 @@ def restore(
         detected = backend.detect_strategy(config)
         detected.restore(config.database_url, branch, config.snapshot_dir, config)
         console.print(f"[green]Restored[/] database for '{branch}'")
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -110,6 +110,6 @@ def restore(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e

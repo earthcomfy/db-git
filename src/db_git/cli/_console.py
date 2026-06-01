@@ -4,7 +4,7 @@ import typer
 from rich.console import Console
 
 app = typer.Typer(
-    name="git-db",
+    name="db-git",
     help=(
         "Keep your database in sync with your git branches. "
         "Currently supports PostgreSQL."

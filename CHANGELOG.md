@@ -9,7 +9,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
-- Initial `git-db` command-line interface.
+- Initial `db-git` command-line interface.
 - Git `post-checkout` hook installation, removal, enable, disable, and dispatch
   support.
 - Shared database mode for saving and restoring branch-specific snapshots.
@@ -18,8 +18,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Active connection handling with `terminate` and `fail` policies.
 - Manual commands for `save`, `restore`, `create`, `reset`, `list`, `status`,
   and `prune`.
-- Snapshot metadata and local state storage under `.git/git-db/`.
+- Snapshot metadata and local state storage under `.git/db-git/`.
 - Unit, integration, and end-to-end tests for CLI, storage, git hooks,
   PostgreSQL strategies, and branch database workflows.
 - Nox sessions, Ruff linting/format checks, mypy type checking, pre-commit
   hooks, Dependabot, and GitHub Actions CI.
+
+## [0.1.1] - 2026-06-01
+
+### Changed
+
+- Renamed project, CLI, package imports, configuration files, environment
+  variables, hook metadata, and local state paths to `db-git`.

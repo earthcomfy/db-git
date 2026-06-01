@@ -6,41 +6,41 @@ from unittest.mock import patch
 
 import pytest
 
-from git_db.config import (
-    GitDbConfig,
+from db_git.config import (
+    DbGitConfig,
     _validate_config,
     ensure_config_ignored,
     load_config,
     write_config,
 )
-from git_db.errors import ConfigError
+from db_git.errors import ConfigError
 
 
 class TestConfig:
     def test_default_values(self):
-        config = GitDbConfig(database_url="postgresql://localhost/db")
+        config = DbGitConfig(database_url="postgresql://localhost/db")
         assert config.mode == "shared"
         assert config.default_branch == "main"
         assert config.strategy == ""
         assert config.on_active_connections == "terminate"
-        assert config.snapshot_dir == Path(".git/git-db/snapshots")
+        assert config.snapshot_dir == Path(".git/db-git/snapshots")
         assert config.max_snapshots == 20
         assert config.force_terminate_timeout_ms == 5000
 
     def test_missing_database_url(self):
-        config = GitDbConfig()
+        config = DbGitConfig()
         with pytest.raises(ConfigError, match="No database URL"):
             _validate_config(config)
 
     def test_empty_strategy_raises(self):
-        config = GitDbConfig(
+        config = DbGitConfig(
             database_url="postgresql://localhost/db",
         )
         with pytest.raises(ConfigError, match="Strategy not configured"):
             _validate_config(config)
 
     def test_invalid_on_active_connections(self):
-        config = GitDbConfig(
+        config = DbGitConfig(
             database_url="postgresql://localhost/db",
             strategy="template",
             on_active_connections="invalid",
@@ -48,8 +48,8 @@ class TestConfig:
         with pytest.raises(ConfigError, match="Invalid on_active_connections"):
             _validate_config(config)
 
-    def test_loads_from_git_db_toml(self, tmp_path: Path):
-        dotfile = tmp_path / ".git-db.toml"
+    def test_loads_from_db_git_toml(self, tmp_path: Path):
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             'database_url = "postgresql://localhost/fromdotfile"\n'
             'strategy = "template"\n'
@@ -65,42 +65,42 @@ class TestConfig:
         (tmp_path / ".git").mkdir()
         env = {
             "DATABASE_URL": "postgresql://localhost/fromenv",
-            "GIT_DB_STRATEGY": "template",
+            "DB_GIT_STRATEGY": "template",
         }
         with patch.dict(os.environ, env, clear=False):
             config = load_config(project_root=tmp_path)
         assert config.database_url == "postgresql://localhost/fromenv"
 
-    def test_git_db_prefixed_env_takes_precedence(self, tmp_path: Path):
+    def test_db_git_prefixed_env_takes_precedence(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
         env = {
             "DATABASE_URL": "postgresql://localhost/generic",
-            "GIT_DB_DATABASE_URL": "postgresql://localhost/specific",
-            "GIT_DB_STRATEGY": "template",
+            "DB_GIT_DATABASE_URL": "postgresql://localhost/specific",
+            "DB_GIT_STRATEGY": "template",
         }
         with patch.dict(os.environ, env, clear=False):
             config = load_config(project_root=tmp_path)
         assert config.database_url == "postgresql://localhost/specific"
 
     def test_env_overrides_file(self, tmp_path: Path):
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             'database_url = "postgresql://localhost/fromfile"\nstrategy = "template"\n'
         )
         (tmp_path / ".git").mkdir()
-        env = {"GIT_DB_STRATEGY": "pgdump"}
+        env = {"DB_GIT_STRATEGY": "pgdump"}
         with patch.dict(os.environ, env, clear=False):
             config = load_config(project_root=tmp_path)
         assert config.strategy == "pgdump"
         assert config.database_url == "postgresql://localhost/fromfile"
 
     def test_cli_overrides_everything(self, tmp_path: Path):
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             'database_url = "postgresql://localhost/fromfile"\nstrategy = "template"\n'
         )
         (tmp_path / ".git").mkdir()
-        env = {"GIT_DB_STRATEGY": "pgdump"}
+        env = {"DB_GIT_STRATEGY": "pgdump"}
         with patch.dict(os.environ, env, clear=False):
             config = load_config(
                 cli_overrides={
@@ -114,7 +114,7 @@ class TestConfig:
 
     def test_none_cli_overrides_ignored(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             'database_url = "postgresql://localhost/db"\nstrategy = "template"\n'
         )
@@ -125,23 +125,23 @@ class TestConfig:
         assert config.strategy == "template"
 
     def test_invalid_mode_raises(self):
-        config = GitDbConfig(database_url="postgresql://localhost/db", mode="invalid")
+        config = DbGitConfig(database_url="postgresql://localhost/db", mode="invalid")
         with pytest.raises(ConfigError, match="Invalid mode"):
             _validate_config(config)
 
     def test_mode_from_env(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             'database_url = "postgresql://localhost/db"\nstrategy = "template"\n'
         )
-        with patch.dict(os.environ, {"GIT_DB_MODE": "per-branch"}, clear=False):
+        with patch.dict(os.environ, {"DB_GIT_MODE": "per-branch"}, clear=False):
             config = load_config(project_root=tmp_path)
         assert config.mode == "per-branch"
 
     def test_mode_from_dotfile(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             'database_url = "postgresql://localhost/db"\n'
             'strategy = "template"\n'
@@ -152,14 +152,14 @@ class TestConfig:
 
     def test_write_config_creates_new_file(self, tmp_path: Path):
         write_config(tmp_path, {"mode": "per-branch", "strategy": "template"})
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         assert dotfile.exists()
         content = dotfile.read_text()
         assert 'mode = "per-branch"' in content
         assert 'strategy = "template"' in content
 
     def test_write_config_preserves_existing_keys(self, tmp_path: Path):
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text('database_url = "postgresql://localhost/db"\n')
         write_config(tmp_path, {"mode": "shared"})
         content = dotfile.read_text()
@@ -167,7 +167,7 @@ class TestConfig:
         assert 'mode = "shared"' in content
 
     def test_write_config_preserves_comments(self, tmp_path: Path):
-        dotfile = tmp_path / ".git-db.toml"
+        dotfile = tmp_path / ".db-git.toml"
         dotfile.write_text(
             '# My custom comment\ndatabase_url = "postgresql://localhost/db"\n'
         )
@@ -177,15 +177,15 @@ class TestConfig:
 
     def test_write_config_adds_standard_comments_for_new_keys(self, tmp_path: Path):
         write_config(tmp_path, {"mode": "per-branch"})
-        content = (tmp_path / ".git-db.toml").read_text()
-        assert "# How git-db manages databases" in content
+        content = (tmp_path / ".db-git.toml").read_text()
+        assert "# How db-git manages databases" in content
 
     def test_ensure_config_ignored_creates_gitignore(self, tmp_path: Path):
         changed = ensure_config_ignored(tmp_path)
 
         assert changed is True
         assert (tmp_path / ".gitignore").read_text() == (
-            "# Local git-db configuration\n.git-db.toml\n"
+            "# Local db-git configuration\n.db-git.toml\n"
         )
 
     def test_ensure_config_ignored_appends_entry(self, tmp_path: Path):
@@ -195,13 +195,13 @@ class TestConfig:
 
         assert changed is True
         assert (tmp_path / ".gitignore").read_text() == (
-            ".venv\n\n# Local git-db configuration\n.git-db.toml\n"
+            ".venv\n\n# Local db-git configuration\n.db-git.toml\n"
         )
 
     def test_ensure_config_ignored_does_not_duplicate_entry(self, tmp_path: Path):
-        (tmp_path / ".gitignore").write_text(".venv\n.git-db.toml\n")
+        (tmp_path / ".gitignore").write_text(".venv\n.db-git.toml\n")
 
         changed = ensure_config_ignored(tmp_path)
 
         assert changed is False
-        assert (tmp_path / ".gitignore").read_text().count(".git-db.toml") == 1
+        assert (tmp_path / ".gitignore").read_text().count(".db-git.toml") == 1

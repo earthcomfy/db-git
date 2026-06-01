@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 import psycopg
 from psycopg import sql
 
-from git_db.backends import DatabaseBackend
-from git_db.backends.postgresql.connections import handle_active_connections
-from git_db.db import parse_database_url
-from git_db.errors import DatabaseError, SnapshotError, ToolNotFoundError
-from git_db.storage import (
+from db_git.backends import DatabaseBackend
+from db_git.backends.postgresql.connections import handle_active_connections
+from db_git.db import parse_database_url
+from db_git.errors import DatabaseError, SnapshotError, ToolNotFoundError
+from db_git.storage import (
     ensure_snapshot_dir,
     make_metadata,
     metadata_path,
@@ -21,7 +21,7 @@ from git_db.storage import (
 )
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
+    from db_git.config import DbGitConfig
 
 
 class PgDumpStrategy:
@@ -40,7 +40,7 @@ class PgDumpStrategy:
         db_url: str,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         pg_dump = shutil.which("pg_dump")
         if not pg_dump:
@@ -87,7 +87,7 @@ class PgDumpStrategy:
         db_url: str,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         pg_restore = shutil.which("pg_restore")
         if not pg_restore:
@@ -121,7 +121,7 @@ class PgDumpStrategy:
         self,
         branch: str,
         snapshot_dir: Path,
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         dump = snapshot_dump_path(snapshot_dir, branch)
         meta = metadata_path(snapshot_dir, branch)
@@ -133,7 +133,7 @@ class PgDumpStrategy:
     def _drop_and_create_db(
         self,
         params: dict[str, str | int],
-        config: GitDbConfig,
+        config: DbGitConfig,
     ) -> None:
         """
         Drop and recreate the target database via the maintenance connection.

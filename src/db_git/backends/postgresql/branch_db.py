@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 import psycopg
 from psycopg import sql
 
-from git_db.backends import DatabaseBackend
-from git_db.backends.postgresql.connections import handle_active_connections
-from git_db.backends.postgresql.template import _create_from_template
-from git_db.db import parse_database_url
-from git_db.errors import SnapshotError, ToolNotFoundError
-from git_db.state import BranchDbEntry, load_state, record_branch_db, remove_branch_db
+from db_git.backends import DatabaseBackend
+from db_git.backends.postgresql.connections import handle_active_connections
+from db_git.backends.postgresql.template import _create_from_template
+from db_git.db import parse_database_url
+from db_git.errors import SnapshotError, ToolNotFoundError
+from db_git.state import BranchDbEntry, load_state, record_branch_db, remove_branch_db
 
 if TYPE_CHECKING:
-    from git_db.config import GitDbConfig
+    from db_git.config import DbGitConfig
 
 
 class PostgresBranchDbManager:
@@ -24,7 +24,7 @@ class PostgresBranchDbManager:
     Per-branch database operations for PostgreSQL.
     """
 
-    def __init__(self, backend: DatabaseBackend, config: GitDbConfig) -> None:
+    def __init__(self, backend: DatabaseBackend, config: DbGitConfig) -> None:
         self._backend = backend
         self._config = config
         self._params = backend.apply_url_defaults(
@@ -95,7 +95,7 @@ def _create_via_template(
     params: dict[str, str | int],
     target: str,
     source: str,
-    config: GitDbConfig,
+    config: DbGitConfig,
 ) -> None:
     """
     Create a database using CREATE DATABASE ... TEMPLATE.
@@ -123,7 +123,7 @@ def _create_via_pgdump(
     env: dict[str, str],
     target: str,
     source: str,
-    config: GitDbConfig,
+    config: DbGitConfig,
 ) -> None:
     """
     Create a database by piping pg_dump to pg_restore.

@@ -8,14 +8,14 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from git_db.storage import branch_db_name
+from db_git.storage import branch_db_name
 from tests._pg_helpers import (
     build_url,
     get_default_branch,
     git_commit_file,
     reconnect,
+    run_db_git,
     run_git,
-    run_git_db,
     seed_users,
 )
 from tests.e2e._helpers import make_branch, run_init
@@ -40,7 +40,7 @@ def _pg_has_db(cli_env: dict, dbname: str) -> bool:
 
 
 def _state_data(repo: Path) -> dict:
-    f = repo / ".git" / "git-db" / "state.json"
+    f = repo / ".git" / "db-git" / "state.json"
     return json.loads(f.read_text()) if f.exists() else {}
 
 
@@ -59,21 +59,21 @@ class TestPerBranchPgdumpWorkflow:
         _init(cli_env)
         repo = cli_env["repo"]
 
-        toml = (repo / ".git-db.toml").read_text()
+        toml = (repo / ".db-git.toml").read_text()
         assert 'mode = "per-branch"' in toml
         assert 'strategy = "pgdump"' in toml
         assert "default_branch" in toml
 
         hook = repo / ".git" / "hooks" / "post-checkout"
         assert hook.exists()
-        assert "git-db-hook-v1" in hook.read_text()
+        assert "db-git-hook-v1" in hook.read_text()
 
     def test_init_no_hook_flag_skips_hook(self, cli_env: dict) -> None:
         _init(cli_env, "--no-hook")
         assert not (cli_env["repo"] / ".git" / "hooks" / "post-checkout").exists()
 
     def test_reinit_updates_existing_config(self, initialized: dict) -> None:
-        run_git_db(
+        run_db_git(
             "init",
             "--database-url",
             initialized["db_url"],
@@ -88,7 +88,7 @@ class TestPerBranchPgdumpWorkflow:
         )
         assert (
             'on_active_connections = "fail"'
-            in (initialized["repo"] / ".git-db.toml").read_text()
+            in (initialized["repo"] / ".db-git.toml").read_text()
         )
 
     # -----------------------------------------------------------------------
@@ -96,7 +96,7 @@ class TestPerBranchPgdumpWorkflow:
     # -----------------------------------------------------------------------
 
     def test_env_var_overrides_toml(self, initialized: dict) -> None:
-        toml = initialized["repo"] / ".git-db.toml"
+        toml = initialized["repo"] / ".db-git.toml"
         toml.write_text(
             toml.read_text().replace(
                 initialized["db_url"],
@@ -104,7 +104,7 @@ class TestPerBranchPgdumpWorkflow:
             )
         )
         env = {**initialized["subprocess_env"], "DATABASE_URL": initialized["db_url"]}
-        assert run_git_db("status", cwd=initialized["repo"], env=env).returncode == 0
+        assert run_db_git("status", cwd=initialized["repo"], env=env).returncode == 0
 
     def test_cli_flag_overrides_env(self, initialized: dict) -> None:
         env = {
@@ -112,7 +112,7 @@ class TestPerBranchPgdumpWorkflow:
             "DATABASE_URL": "postgresql://nope:nope@127.0.0.1:1/nope",
         }
         assert (
-            run_git_db(
+            run_db_git(
                 "status",
                 "--database-url",
                 initialized["db_url"],
@@ -129,7 +129,7 @@ class TestPerBranchPgdumpWorkflow:
     def test_hook_install_is_idempotent(self, initialized: dict) -> None:
         hook = initialized["repo"] / ".git" / "hooks" / "post-checkout"
         before = hook.read_text()
-        run_git_db(
+        run_db_git(
             "hook",
             "install",
             cwd=initialized["repo"],
@@ -148,7 +148,7 @@ class TestPerBranchPgdumpWorkflow:
         preserved = hooks / "post-checkout.legacy"
         assert preserved.exists()
 
-        run_git_db("hook", "remove", cwd=cli_env["repo"], env=cli_env["subprocess_env"])
+        run_db_git("hook", "remove", cwd=cli_env["repo"], env=cli_env["subprocess_env"])
         assert not preserved.exists()
         assert (hooks / "post-checkout").read_text() == legacy
 
@@ -263,7 +263,7 @@ class TestPerBranchPgdumpWorkflow:
             finally:
                 conn.close()
 
-        run_git_db("create", "ahead", cwd=repo, env=env)
+        run_db_git("create", "ahead", cwd=repo, env=env)
         assert _pg_has_db(initialized, db_name)
 
     def test_create_refuses_when_branch_db_exists(self, initialized: dict) -> None:
@@ -273,7 +273,7 @@ class TestPerBranchPgdumpWorkflow:
         seed_users(initialized["db_url"])
         make_branch(initialized, "feature")
 
-        result = run_git_db("create", "feature", cwd=repo, env=env, check=False)
+        result = run_db_git("create", "feature", cwd=repo, env=env, check=False)
         assert result.returncode != 0
 
     def test_reset_drops_and_reclones_from_seed(self, initialized: dict) -> None:
@@ -293,7 +293,7 @@ class TestPerBranchPgdumpWorkflow:
         finally:
             conn.close()
 
-        run_git_db("reset", "feature", cwd=repo, env=env)
+        run_db_git("reset", "feature", cwd=repo, env=env)
 
         conn = reconnect(feature_url)
         try:
@@ -304,7 +304,7 @@ class TestPerBranchPgdumpWorkflow:
 
     def test_reset_refuses_default_branch(self, initialized: dict) -> None:
         default = get_default_branch(initialized["repo"])
-        result = run_git_db(
+        result = run_db_git(
             "reset",
             default,
             cwd=initialized["repo"],
@@ -314,7 +314,7 @@ class TestPerBranchPgdumpWorkflow:
         assert result.returncode != 0
 
     # -----------------------------------------------------------------------
-    # Disable / enable / GIT_DB_SKIP
+    # Disable / enable / DB_GIT_SKIP
     # -----------------------------------------------------------------------
 
     def test_disable_gates_the_hook(self, initialized: dict) -> None:
@@ -324,20 +324,20 @@ class TestPerBranchPgdumpWorkflow:
         env = initialized["subprocess_env"]
 
         seed_users(initialized["db_url"])
-        run_git_db("disable", cwd=repo, env=env)
+        run_db_git("disable", cwd=repo, env=env)
 
         make_branch(initialized, "feature")
         feature_db = branch_db_name("feature", seed, default)
         assert not _pg_has_db(initialized, feature_db)
 
-    def test_git_db_skip_env_bypasses_auto_create(self, initialized: dict) -> None:
+    def test_db_git_skip_env_bypasses_auto_create(self, initialized: dict) -> None:
         seed = initialized["pg_info"]["dbname"]
         default = get_default_branch(initialized["repo"])
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
 
         seed_users(initialized["db_url"])
-        skip_env = {**env, "GIT_DB_SKIP": "1"}
+        skip_env = {**env, "DB_GIT_SKIP": "1"}
         run_git("checkout", "-b", "feature", cwd=repo, env=skip_env)
         git_commit_file(repo, "f.txt", "f\n", env=skip_env)
 
@@ -360,7 +360,7 @@ class TestPerBranchPgdumpWorkflow:
         feature_db = branch_db_name("feature", seed, default)
         holder = reconnect(build_url(cli_env["pg_info"], feature_db))
         try:
-            run_git_db(
+            run_db_git(
                 "reset",
                 "feature",
                 cwd=cli_env["repo"],
@@ -382,7 +382,7 @@ class TestPerBranchPgdumpWorkflow:
         feature_db = branch_db_name("feature", seed, default)
         holder = reconnect(build_url(cli_env["pg_info"], feature_db))
         try:
-            result = run_git_db(
+            result = run_db_git(
                 "reset",
                 "feature",
                 cwd=cli_env["repo"],
@@ -419,7 +419,7 @@ class TestPerBranchPgdumpWorkflow:
     def test_hook_exits_zero_with_invalid_toml(self, initialized: dict) -> None:
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
-        (repo / ".git-db.toml").write_text("not [[[ valid toml")
+        (repo / ".db-git.toml").write_text("not [[[ valid toml")
         result = subprocess.run(
             ["git", "checkout", "-b", "feature"],
             cwd=repo,
@@ -433,7 +433,7 @@ class TestPerBranchPgdumpWorkflow:
         repo = cli_env["repo"]
         env = cli_env["subprocess_env"]
 
-        run_git_db("hook", "install", cwd=repo, env=env)
+        run_db_git("hook", "install", cwd=repo, env=env)
         run_git("checkout", "-b", "feature", cwd=repo, env=env)
         git_commit_file(repo, "f.txt", "f\n", env=env)
 
@@ -557,9 +557,9 @@ class TestPerBranchPgdumpWorkflow:
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
 
-        (repo / ".gitignore").write_text(".git-db/\n")
-        run_git("add", ".git-db.toml", ".gitignore", cwd=repo, env=env)
-        run_git("commit", "-m", "add git-db config", cwd=repo, env=env)
+        (repo / ".gitignore").write_text(".db-git/\n")
+        run_git("add", ".db-git.toml", ".gitignore", cwd=repo, env=env)
+        run_git("commit", "-m", "add db-git config", cwd=repo, env=env)
 
         bare = tmp_path / "upstream.git"
         run_git("clone", "--bare", str(repo), str(bare), cwd=tmp_path, env=env)
@@ -629,7 +629,7 @@ class TestPerBranchPgdumpWorkflow:
         stale_db = branch_db_name("stale", seed, default)
         assert _pg_has_db(initialized, stale_db)
 
-        run_git_db("prune", "--dry-run", cwd=repo, env=env)
+        run_db_git("prune", "--dry-run", cwd=repo, env=env)
         assert _pg_has_db(initialized, stale_db)
 
     def test_prune_yes_drops_stale_branch_dbs(self, initialized: dict) -> None:
@@ -643,7 +643,7 @@ class TestPerBranchPgdumpWorkflow:
         run_git("checkout", default, cwd=repo, env=env)
         run_git("branch", "-D", "stale", cwd=repo, env=env)
 
-        run_git_db("prune", "--yes", cwd=repo, env=env)
+        run_db_git("prune", "--yes", cwd=repo, env=env)
 
         stale_db = branch_db_name("stale", seed, default)
         assert not _pg_has_db(initialized, stale_db)
@@ -669,7 +669,7 @@ class TestPerBranchPgdumpWorkflow:
         stuck_db = branch_db_name("stuck", seed, default)
         holder = reconnect(build_url(cli_env["pg_info"], stuck_db))
         try:
-            run_git_db("prune", "--yes", cwd=repo, env=env)
+            run_db_git("prune", "--yes", cwd=repo, env=env)
         finally:
             with contextlib.suppress(Exception):
                 holder.close()
@@ -685,7 +685,7 @@ class TestPerBranchPgdumpWorkflow:
         run_git("checkout", default, cwd=repo, env=env)
         run_git("branch", "-D", "stale", cwd=repo, env=env)
 
-        result = run_git_db("prune", cwd=repo, env=env, check=False)
+        result = run_db_git("prune", cwd=repo, env=env, check=False)
         assert result.returncode != 0
 
     # -----------------------------------------------------------------------
@@ -699,7 +699,7 @@ class TestPerBranchPgdumpWorkflow:
         seed_users(initialized["db_url"])
         make_branch(initialized, "feature")
 
-        result = run_git_db("list", cwd=repo, env=env)
+        result = run_db_git("list", cwd=repo, env=env)
         out = result.stdout + result.stderr
         assert "feature" in out
 
@@ -707,7 +707,7 @@ class TestPerBranchPgdumpWorkflow:
         repo = initialized["repo"]
         env = initialized["subprocess_env"]
         seed_users(initialized["db_url"])
-        result = run_git_db("status", cwd=repo, env=env)
+        result = run_db_git("status", cwd=repo, env=env)
         out = result.stdout + result.stderr
         assert "per-branch" in out
         assert "pgdump" in out
@@ -717,7 +717,7 @@ class TestPerBranchPgdumpWorkflow:
     # -----------------------------------------------------------------------
 
     def test_save_is_no_op_in_per_branch(self, initialized: dict) -> None:
-        result = run_git_db(
+        result = run_db_git(
             "save",
             cwd=initialized["repo"],
             env=initialized["subprocess_env"],
@@ -726,7 +726,7 @@ class TestPerBranchPgdumpWorkflow:
         assert "per-branch" in out.lower() or "create" in out.lower()
 
     def test_restore_is_no_op_in_per_branch(self, initialized: dict) -> None:
-        result = run_git_db(
+        result = run_db_git(
             "restore",
             cwd=initialized["repo"],
             env=initialized["subprocess_env"],
@@ -736,7 +736,7 @@ class TestPerBranchPgdumpWorkflow:
 
     def test_commands_require_init(self, cli_env: dict) -> None:
         for cmd in ("create", "reset", "list", "status", "prune"):
-            result = run_git_db(
+            result = run_db_git(
                 cmd,
                 cwd=cli_env["repo"],
                 env=cli_env["subprocess_env"],

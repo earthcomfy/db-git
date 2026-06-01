@@ -4,12 +4,12 @@ from typing import Annotated
 
 import typer
 
-from git_db.backends import get_backend
-from git_db.config import load_config
-from git_db.db import parse_database_url
-from git_db.errors import GitDbError
-from git_db.git import get_current_branch, get_git_dir
-from git_db.storage import branch_db_name
+from db_git.backends import get_backend
+from db_git.config import load_config
+from db_git.db import parse_database_url
+from db_git.errors import DbGitError
+from db_git.git import get_current_branch, get_git_dir
+from db_git.storage import branch_db_name
 
 from ._common import debug_enabled, require_init
 from ._console import app, console
@@ -33,7 +33,7 @@ def create(
 
         if config.mode != "per-branch":
             console.print(
-                "Shared mode: use [cyan]git-db save[/] to snapshot the database."
+                "Shared mode: use [cyan]db-git save[/] to snapshot the database."
             )
             return
 
@@ -62,7 +62,7 @@ def create(
         if manager.exists(target_db):
             console.print(
                 f"[yellow]Branch database '{target_db}' already exists.[/] "
-                "Use [cyan]git-db reset[/] to recreate from seed."
+                "Use [cyan]db-git reset[/] to recreate from seed."
             )
             raise typer.Exit(1)
 
@@ -83,7 +83,7 @@ def create(
 
         manager.create(target_db, source_db, branch, created_from, git_dir)
         console.print(f"[green]Created[/] database: {target_db}")
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -93,7 +93,7 @@ def create(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e
 
@@ -114,7 +114,7 @@ def reset(
 
         if config.mode != "per-branch":
             console.print(
-                "Shared mode: use [cyan]git-db restore[/] to restore a snapshot."
+                "Shared mode: use [cyan]db-git restore[/] to restore a snapshot."
             )
             return
 
@@ -153,7 +153,7 @@ def reset(
 
         manager.create(target_db, seed_db, branch, config.default_branch, git_dir)
         console.print(f"[green]Reset[/] database '{target_db}' from seed '{seed_db}'")
-    except GitDbError as e:
+    except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e
     except typer.Exit:
@@ -163,6 +163,6 @@ def reset(
             raise
         console.print(
             f"[red]Error:[/] Unexpected error: {e}\n"
-            "[dim]Set GIT_DB_DEBUG=1 to see the full traceback.[/]"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
         )
         raise typer.Exit(1) from e
