@@ -64,6 +64,17 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/db_git"]
 
+[tool.semantic_release]
+allow_zero_version = true
+build_command = "python -m pip install build && python -m build --sdist --wheel ."
+commit_message = "chore: release v{version}"
+commit_parser = "conventional"
+version_toml = ["pyproject.toml:project.version"]
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
+output_format = "md"
+
 [tool.pytest.ini_options]
 markers = ["integration: integration tests", "e2e: end-to-end tests"]
 
