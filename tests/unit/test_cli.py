@@ -481,6 +481,71 @@ class TestStatus:
             os.chdir(old_cwd)
 
 
+class TestUrl:
+    def test_per_branch_explicit_branch(self, git_repo, setup_config):
+        setup_config(git_repo, mode="per-branch")
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            result = runner.invoke(app, ["url", "feature/auth"])
+            assert result.exit_code == 0
+            assert (
+                "postgresql://postgres:postgres@localhost:5432/testdb__feature__auth"
+                in result.output
+            )
+        finally:
+            os.chdir(old_cwd)
+
+    def test_per_branch_default_branch_uses_seed(self, git_repo, setup_config):
+        setup_config(git_repo, mode="per-branch")
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            result = runner.invoke(app, ["url", "main"])
+            assert result.exit_code == 0
+            assert (
+                "postgresql://postgres:postgres@localhost:5432/testdb" in result.output
+            )
+            assert "testdb__" not in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_shared_mode_emits_configured_url(self, git_repo, setup_config):
+        setup_config(git_repo)
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            result = runner.invoke(app, ["url"])
+            assert result.exit_code == 0
+            assert (
+                "postgresql://postgres:postgres@localhost:5432/testdb" in result.output
+            )
+        finally:
+            os.chdir(old_cwd)
+
+    def test_detached_head_without_branch_fails(self, git_repo, setup_config):
+        setup_config(git_repo, mode="per-branch")
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            with patch("db_git.cli.inspect.get_current_branch", return_value=None):
+                result = runner.invoke(app, ["url"])
+            assert result.exit_code == 1
+            assert "detached" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_fails_without_init(self, git_repo):
+        old_cwd = os.getcwd()
+        os.chdir(git_repo)
+        try:
+            result = runner.invoke(app, ["url"])
+            assert result.exit_code == 1
+            assert "not initialized" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+
 class TestPrune:
     def test_dry_run(self, git_repo, setup_with_snapshots):
         setup_with_snapshots(git_repo, ["main", "stale-branch"])

@@ -8,7 +8,7 @@ from rich.table import Table
 
 from db_git.backends import DatabaseBackend, SnapshotStrategy, get_backend
 from db_git.config import DbGitConfig, load_config
-from db_git.db import parse_database_url
+from db_git.db import parse_database_url, with_database_name
 from db_git.errors import DbGitError
 from db_git.git import get_current_branch, get_git_dir, list_branches
 from db_git.state import load_state
@@ -185,6 +185,56 @@ def status(
             f"  Enabled:    {enabled_status}"
         )
         console.print(Panel(summary, title="db-git status", border_style="blue"))
+    except DbGitError as e:
+        console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if debug_enabled():
+            raise
+        console.print(
+            f"[red]Error:[/] Unexpected error: {e}\n"
+            "[dim]Set DB_GIT_DEBUG=1 to see the full traceback.[/]"
+        )
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def url(
+    branch: Annotated[str | None, typer.Argument()] = None,
+    database_url: Annotated[
+        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+    ] = None,
+) -> None:
+    """
+    Print the connectable database URL for the current (or given) branch.
+    """
+    require_init()
+    try:
+        config = load_config(cli_overrides={"database_url": database_url})
+
+        if config.mode != "per-branch":
+            # Shared mode: one fixed database, so emit the configured URL as-is.
+            typer.echo(config.database_url)
+            return
+
+        if branch is None:
+            branch = get_current_branch()
+            if branch is None:
+                console.print("[red]Error:[/] HEAD is detached. Specify a branch name.")
+                raise typer.Exit(1)
+
+        backend = get_backend(config.database_url)
+        params = backend.apply_url_defaults(parse_database_url(config.database_url))
+        dbname = str(params["dbname"])
+        target_db = branch_db_name(
+            branch,
+            dbname,
+            config.default_branch,
+            backend.max_identifier_length,
+        )
+        typer.echo(with_database_name(config.database_url, target_db))
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e

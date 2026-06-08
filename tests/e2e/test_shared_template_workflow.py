@@ -695,7 +695,7 @@ class TestSharedTemplateWorkflow:
         assert len(_meta_files(repo)) <= 1
 
     # -----------------------------------------------------------------------
-    # list / status
+    # list / status / url
     # -----------------------------------------------------------------------
 
     def test_list_shows_saved_snapshots(self, initialized: dict) -> None:
@@ -728,3 +728,11 @@ class TestSharedTemplateWorkflow:
         r2 = run_db_git("status", cwd=repo, env=env)
         out2 = r2.stdout + r2.stderr
         assert "no" in out2.lower()
+
+    def test_url_emits_configured_url(self, initialized: dict) -> None:
+        result = run_db_git(
+            "url",
+            cwd=initialized["repo"],
+            env=initialized["subprocess_env"],
+        )
+        assert result.stdout.strip() == initialized["db_url"]

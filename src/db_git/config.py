@@ -14,7 +14,11 @@ VALID_MODES = {"shared", "per-branch"}
 VALID_STRATEGIES = {"template", "pgdump"}
 
 _CONFIG_COMMENTS: dict[str, str] = {
-    "database_url": "Database connection URL.",
+    "database_url": (
+        "Base database connection URL: credentials, host/port, and the database for\n"
+        "# your default branch. In per-branch mode each branch's database is copied\n"
+        "# from this one."
+    ),
     "mode": (
         "How db-git manages databases across branches.\n"
         '# "shared": one database, snapshot/restore on switch\n'

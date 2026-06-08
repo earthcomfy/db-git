@@ -68,6 +68,14 @@ Because the database name changes per branch, your application server also
 needs to connect to the branch database. For example, when working on
 `feature/auth`, point your app's `DATABASE_URL` at `myapp__feature__auth`.
 
+`db-git url` prints the full connection URL for the current branch, so you can
+hand it straight to your app or client:
+
+```bash
+export DATABASE_URL=$(db-git url)
+psql "$(db-git url)"
+```
+
 ## Choosing a Mode
 
 ### Shared Mode
@@ -141,6 +149,7 @@ db-git init --database-url postgresql://localhost/myapp --no-hook
 ```bash
 db-git status
 db-git list
+db-git url
 ```
 
 ### Shared Mode Commands

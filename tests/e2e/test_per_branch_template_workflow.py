@@ -733,7 +733,7 @@ class TestPerBranchTemplateWorkflow:
         assert result.returncode != 0
 
     # -----------------------------------------------------------------------
-    # list / status
+    # list / status / url
     # -----------------------------------------------------------------------
 
     def test_list_shows_branch_databases(self, initialized: dict) -> None:
@@ -756,6 +756,37 @@ class TestPerBranchTemplateWorkflow:
         out = result.stdout + result.stderr
         assert "per-branch" in out
         assert "template" in out
+
+    def test_url_emits_connectable_branch_url(self, initialized: dict) -> None:
+        pg_info = initialized["pg_info"]
+        seed = pg_info["dbname"]
+        default = get_default_branch(initialized["repo"])
+        repo = initialized["repo"]
+        env = initialized["subprocess_env"]
+
+        seed_users(initialized["db_url"])
+        make_branch(initialized, "feature")
+        feature_db = branch_db_name("feature", seed, default)
+
+        result = run_db_git("url", cwd=repo, env=env)
+        printed = result.stdout.strip()
+        assert printed == build_url(pg_info, feature_db)
+
+        conn = reconnect(printed)
+        try:
+            cur = conn.execute("SELECT name FROM users ORDER BY name")
+            assert [r[0] for r in cur.fetchall()] == ["Alice", "Bob", "Charlie"]
+        finally:
+            conn.close()
+
+    def test_url_for_default_branch_returns_seed_url(self, initialized: dict) -> None:
+        result = run_db_git(
+            "url",
+            get_default_branch(initialized["repo"]),
+            cwd=initialized["repo"],
+            env=initialized["subprocess_env"],
+        )
+        assert result.stdout.strip() == build_url(initialized["pg_info"])
 
     # -----------------------------------------------------------------------
     # Shared-mode-only commands
