@@ -5,7 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-05-22
+<!-- version list -->
+
+## v0.2.0 (2026-06-08)
+
+### Added
+
+- Introduced a new command `db-git url` that outputs the database connection URL
+  for the current or specified branch.
+
+### Changed
+
+- Enhanced `config.py` to provide clearer documentation for the database URL configuration.
+
+## v0.1.1 (2026-06-01)
+
+### Changed
+
+- Renamed project, CLI, package imports, configuration files, environment
+  variables, hook metadata, and local state paths to `db-git`.
+
+## v0.1.0 (2026-05-22)
 
 ### Added
 
@@ -23,10 +43,3 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   PostgreSQL strategies, and branch database workflows.
 - Nox sessions, Ruff linting/format checks, mypy type checking, pre-commit
   hooks, Dependabot, and GitHub Actions CI.
-
-## [0.1.1] - 2026-06-01
-
-### Changed
-
-- Renamed project, CLI, package imports, configuration files, environment
-  variables, hook metadata, and local state paths to `db-git`.
