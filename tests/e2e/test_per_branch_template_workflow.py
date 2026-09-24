@@ -634,7 +634,7 @@ class TestPerBranchTemplateWorkflow:
         run_git("checkout", "-b", "feature/auth", cwd=repo, env=env)
         git_commit_file(repo, "a.txt", "a\n", env=env)
 
-        expected_db = f"{seed}__feature__auth"
+        expected_db = branch_db_name("feature/auth", seed, "main")
         assert _pg_has_db(initialized, expected_db)
 
     def test_long_branch_name_uses_hash_fallback(self, initialized: dict) -> None:

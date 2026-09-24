@@ -171,12 +171,16 @@ def handle_post_checkout(
     """
     Handle a post-checkout event. Called by the _hook-dispatch CLI command.
     """
+    git_dir = None
     try:
         if is_branch != "1":
             return
 
         git_dir = get_git_dir()
         if git_dir is None:
+            return
+
+        if (git_dir / "db-git" / "disabled").exists():
             return
 
         if is_null_ref(prev_head):
@@ -200,21 +204,48 @@ def handle_post_checkout(
 
         backend = get_backend(config.database_url)
 
-        if prev_branch:
-            _try_save(backend, config, prev_branch)
+        if prev_branch and not _try_save(backend, config, prev_branch):
+            _disable_after_failed_switch(git_dir, save_failed=True)
+            return
 
         if curr_branch:
             if has_snapshot(config.snapshot_dir, curr_branch):
-                _try_restore(backend, config, curr_branch)
+                if not _try_restore(backend, config, curr_branch):
+                    _disable_after_failed_switch(git_dir)
             else:
                 console.print(
                     f"[dim]No snapshot for '{curr_branch}': database unchanged[/]"
                 )
     except Exception as e:
         console.print(f"[yellow]db-git warning:[/] {e}")
+        if git_dir is not None and config.mode == "shared":
+            _disable_after_failed_switch(git_dir)
 
 
-def _try_save(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> None:
+def _disable_after_failed_switch(git_dir: Path, *, save_failed: bool = False) -> None:
+    disabled = git_dir / "db-git" / "disabled"
+    disabled.parent.mkdir(parents=True, exist_ok=True)
+    disabled.touch()
+    console.print(
+        "[yellow]Automatic database switching disabled after a failed switch.[/]"
+    )
+    if save_failed:
+        console.print(
+            "Git has changed branches; the working database was not restored. "
+            "Fix the save error, then preserve its data with "
+            "'db-git save <previous-branch>'. Restore the intended snapshot "
+            "before running 'db-git enable'."
+        )
+    else:
+        console.print(
+            "Git has changed branches, but the database may be incomplete or belong "
+            "to another branch. Do not overwrite a good snapshot with this database. "
+            "Resolve the error and restore a known-good snapshot, then run "
+            "'db-git enable'."
+        )
+
+
+def _try_save(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> bool:
     """
     Attempt to save a snapshot.
     """
@@ -222,12 +253,14 @@ def _try_save(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> Non
         strategy = backend.detect_strategy(config)
         strategy.save(config.database_url, branch, config.snapshot_dir, config)
         console.print(f"[green]Saved[/] ({strategy.name}): {branch}")
+        return True
     except Exception as e:
         console.print(f"[yellow]Warning:[/] Could not save '{branch}': {e}")
         _print_superuser_hint(e, config.database_url)
+        return False
 
 
-def _try_restore(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> None:
+def _try_restore(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> bool:
     """
     Attempt to restore a snapshot.
     """
@@ -235,9 +268,11 @@ def _try_restore(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> 
         strategy = backend.detect_strategy(config)
         strategy.restore(config.database_url, branch, config.snapshot_dir, config)
         console.print(f"[green]Restored[/] database for '{branch}'")
+        return True
     except Exception as e:
         console.print(f"[yellow]Warning:[/] Could not restore '{branch}': {e}")
         _print_superuser_hint(e, config.database_url)
+        return False
 
 
 def _print_superuser_hint(error: Exception, db_url: str) -> None:
@@ -286,6 +321,7 @@ def _handle_per_branch_checkout(
         dbname,
         config.default_branch,
         backend.max_identifier_length,
+        git_dir=git_dir,
     )
 
     # Default branch uses the seed DB directly
@@ -308,6 +344,7 @@ def _handle_per_branch_checkout(
             dbname,
             config.default_branch,
             backend.max_identifier_length,
+            git_dir=git_dir,
         )
         if manager.exists(prev_db):
             source_db = prev_db

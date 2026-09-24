@@ -23,11 +23,13 @@ class TestBranchDbName:
         assert branch_db_name("main", "myapp", "main") == "myapp"
 
     def test_feature_branch_gets_suffix(self):
-        assert branch_db_name("develop", "myapp", "main") == "myapp__develop"
+        assert branch_db_name("develop", "myapp", "main").startswith(
+            "myapp__develop__h"
+        )
 
     def test_slashes_sanitized(self):
         result = branch_db_name("feature/auth", "myapp", "main")
-        assert result == "myapp__feature__auth"
+        assert result.startswith("myapp__feature__auth__h")
 
     def test_truncation_on_long_branch(self):
         long_branch = "a" * 100
@@ -53,7 +55,7 @@ class TestBranchDbName:
 
     def test_master_as_default(self):
         assert branch_db_name("master", "myapp", "master") == "myapp"
-        assert branch_db_name("main", "myapp", "master") == "myapp__main"
+        assert branch_db_name("main", "myapp", "master").startswith("myapp__main__h")
 
 
 class TestStorage:
@@ -85,7 +87,7 @@ class TestStorage:
         assert sanitize_branch_name("") == "unnamed"
 
     def test_basic(self):
-        assert snapshot_db_name("main", "myapp") == "_dbgit_myapp_main"
+        assert snapshot_db_name("main", "myapp").startswith("_dbgit_myapp_main__h")
 
     def test_truncates_long_branch_to_fit(self):
         result = snapshot_db_name("a" * 100, "db")
@@ -95,13 +97,13 @@ class TestStorage:
     def test_dump_path(self, tmp_path: Path):
         assert (
             snapshot_dump_path(tmp_path, "feature/auth")
-            == tmp_path / "feature__auth.dump"
+            == tmp_path / "feature__auth__hfc659bd73585.dump"
         )
 
     def test_metadata_path(self, tmp_path: Path):
         assert (
             metadata_path(tmp_path, "feature/auth")
-            == tmp_path / "feature__auth.meta.json"
+            == tmp_path / "feature__auth__hfc659bd73585.meta.json"
         )
 
     def test_write_and_read(self, tmp_path: Path):
@@ -136,7 +138,7 @@ class TestStorage:
             engine_version="16",
         )
         write_metadata(nested, meta)
-        assert (nested / "main.meta.json").exists()
+        assert metadata_path(nested, "main").exists()
 
     def test_with_file_size(self, tmp_path: Path):
         meta = make_metadata(

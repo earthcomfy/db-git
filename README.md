@@ -61,12 +61,14 @@ In `per-branch` mode, db-git creates or selects a database named from the
 current branch, for example:
 
 ```text
-myapp__feature__auth
+myapp__feature__auth__hf8c7f316292f
 ```
 
 Because the database name changes per branch, your application server also
 needs to connect to the branch database. For example, when working on
-`feature/auth`, point your app's `DATABASE_URL` at `myapp__feature__auth`.
+`feature/auth`, point your app's `DATABASE_URL` at the branch database.
+New names include a stable hash so branches such as `feature/foo-bar` and
+`feature/foo_bar` cannot share a database just because their readable names match.
 
 `db-git url` prints the full connection URL for the current branch, so you can
 hand it straight to your app or client:
@@ -279,6 +281,37 @@ DB_GIT_FORCE_TERMINATE_TIMEOUT_MS
 ```
 
 `DB_GIT_DATABASE_URL` takes precedence over `DATABASE_URL`.
+
+### Existing databases and snapshots
+
+Existing branch databases keep the names recorded in `.git/db-git/state.json`.
+Existing snapshots keep their names when their metadata identifies the exact
+branch. No automatic database rename or snapshot migration is required. Use
+`db-git url` instead of constructing database names in application scripts.
+
+Keep the state and snapshot metadata when upgrading. If multiple branches are
+already recorded against the same database, db-git refuses operations that rely
+on that ambiguous ownership. Back up that database and reconcile its state
+records before proceeding; changing names cannot recover data previously lost
+to a collision.
+
+### Recover after a failed branch switch
+
+Git checkout still completes when database handling fails. In shared mode, a
+failed save prevents the destination snapshot from being restored. A failed
+save or restore also disables automatic database switching, preventing later
+checkouts from saving the wrong database under another branch's name.
+
+If saving failed, fix the reported error and save the working database explicitly
+under the branch you left, for example `db-git save main`. Then restore the
+intended branch snapshot with `db-git restore feature/auth`. If that branch has
+no snapshot, explicitly choose which saved database state it should start from.
+Run `db-git enable` once the working database matches the intended branch.
+
+If restoring failed, the working database may be incomplete. Do not save it over
+a known-good snapshot. Fix the error, restore a known-good snapshot, and then
+run `db-git enable`. Restores do not yet provide automatic rollback; staged
+replacement and recovery are the next safety milestone.
 
 ### Active connections block an operation
 

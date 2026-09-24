@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from db_git.storage import metadata_path
 from tests._pg_helpers import (
     get_columns,
     get_default_branch,
@@ -244,9 +245,7 @@ class TestSharedTemplateWorkflow:
 
         seed_users(url)
         run_db_git("save", cwd=repo, env=env)
-        assert {"master.meta.json", "main.meta.json"} & _meta_files(repo) or (
-            f"{default}.meta.json" in _meta_files(repo)
-        )
+        assert metadata_path(_snapshot_dir(repo), default).name in _meta_files(repo)
 
         make_branch(cli_env, "feature")
         conn = reconnect(url)
@@ -290,7 +289,9 @@ class TestSharedTemplateWorkflow:
         env = initialized["subprocess_env"]
         seed_users(initialized["db_url"])
         run_db_git("save", "arbitrary-label", cwd=repo, env=env)
-        assert "arbitrary_label.meta.json" in _meta_files(repo)
+        assert metadata_path(
+            _snapshot_dir(repo), "arbitrary-label"
+        ).name in _meta_files(repo)
 
     # -----------------------------------------------------------------------
     # Disable / enable / DB_GIT_SKIP
@@ -612,7 +613,9 @@ class TestSharedTemplateWorkflow:
         git_commit_file(repo, "a.txt", "a\n", env=env)
         run_db_git("save", "feature/auth", cwd=repo, env=env)
 
-        assert "feature__auth.meta.json" in _meta_files(repo)
+        assert metadata_path(_snapshot_dir(repo), "feature/auth").name in _meta_files(
+            repo
+        )
 
     def test_long_branch_name_hash_falls_back(self, initialized: dict) -> None:
         repo = initialized["repo"]

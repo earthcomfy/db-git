@@ -233,6 +233,7 @@ def url(
             dbname,
             config.default_branch,
             backend.max_identifier_length,
+            git_dir=get_git_dir(),
         )
         typer.echo(with_database_name(config.database_url, target_db))
     except DbGitError as e:
@@ -375,6 +376,7 @@ def _status_per_branch(
             dbname,
             config.default_branch,
             backend.max_identifier_length,
+            git_dir=git_dir,
         )
         db_exists = backend.branch_db_manager(config).exists(current_db)
         db_status = "[green]exists[/]" if db_exists else "[dim]not created[/]"
@@ -427,7 +429,9 @@ def _shared_snapshot_status(
 
     params = backend.apply_url_defaults(parse_database_url(config.database_url))
     dbname = str(params["dbname"])
-    name = snapshot_db_name(branch, dbname, backend.max_identifier_length)
+    name = snapshot_db_name(
+        branch, dbname, backend.max_identifier_length, snapshot_dir=config.snapshot_dir
+    )
     try:
         return (
             "[green]exists[/]"

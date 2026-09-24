@@ -57,11 +57,12 @@ def create(
             dbname,
             config.default_branch,
             backend.max_identifier_length,
+            git_dir=git_dir,
         )
 
         if manager.exists(target_db):
             console.print(
-                f"[yellow]Branch database '{target_db}' already exists.[/] "
+                f"[yellow]Branch database '{target_db}' already exists.[/]\n"
                 "Use [cyan]db-git reset[/] to recreate from seed."
             )
             raise typer.Exit(1)
@@ -76,6 +77,7 @@ def create(
                 dbname,
                 config.default_branch,
                 backend.max_identifier_length,
+                git_dir=git_dir,
             )
             if manager.exists(candidate):
                 source_db = candidate
@@ -138,6 +140,7 @@ def reset(
             dbname,
             config.default_branch,
             backend.max_identifier_length,
+            git_dir=git_dir,
         )
         seed_db = dbname
 

@@ -10,7 +10,7 @@ from psycopg import sql
 from db_git.backends.postgresql.backend import PostgresqlBackend
 from db_git.backends.postgresql.branch_db import PostgresBranchDbManager
 from db_git.config import DbGitConfig
-from db_git.errors import ActiveConnectionsError
+from db_git.errors import ActiveConnectionsError, SnapshotError
 from db_git.state import load_state, record_branch_db
 from tests._pg_helpers import build_url, get_names, reconnect, seed_users
 
@@ -82,14 +82,14 @@ class TestPostgresBranchDbManager:
         cloned_url = build_url({**pg_info, "dbname": target})
         assert get_names(cloned_url) == ["Alice", "Bob", "Charlie"]
 
-    def test_create_replaces_existing_target(
+    def test_create_preserves_existing_target(
         self,
         pg_info: dict,
         git_dir: Path,
         template_manager: PostgresBranchDbManager,
     ) -> None:
         """
-        If the target DB already exists, create should drop+recreate it.
+        Creating a branch must not overwrite a database that already exists.
         """
         source_url = build_url(pg_info)
         seed_users(source_url)
@@ -104,12 +104,13 @@ class TestPostgresBranchDbManager:
         finally:
             source_conn.close()
 
-        template_manager.create(
-            target, pg_info["dbname"], "collide", pg_info["dbname"], git_dir
-        )
+        with pytest.raises(SnapshotError):
+            template_manager.create(
+                target, pg_info["dbname"], "collide", pg_info["dbname"], git_dir
+            )
 
         cloned_url = build_url({**pg_info, "dbname": target})
-        assert get_names(cloned_url) == ["Alice", "Bob", "Charlie", "Dave"]
+        assert get_names(cloned_url) == ["Alice", "Bob", "Charlie"]
 
     def test_drop_is_idempotent_when_db_missing(
         self,

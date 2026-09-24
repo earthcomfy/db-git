@@ -14,6 +14,7 @@ from db_git.db import parse_database_url
 from db_git.errors import DatabaseError, SnapshotError, ToolNotFoundError
 from db_git.storage import (
     ensure_snapshot_dir,
+    has_snapshot,
     make_metadata,
     metadata_path,
     snapshot_dump_path,
@@ -53,6 +54,10 @@ class PgDumpStrategy:
 
         ensure_snapshot_dir(snapshot_dir)
         dump_file = snapshot_dump_path(snapshot_dir, branch)
+        if dump_file.exists() and not has_snapshot(snapshot_dir, branch):
+            raise SnapshotError(
+                f"Refusing to replace untracked dump file '{dump_file}'"
+            )
 
         cmd = _build_pg_dump_cmd(
             pg_dump,
@@ -114,7 +119,7 @@ class PgDumpStrategy:
             env=env,
             timeout=300,
         )
-        if result.returncode != 0 and "ERROR" in result.stderr:
+        if result.returncode != 0:
             raise SnapshotError(f"pg_restore failed: {result.stderr.strip()}")
 
     def cleanup(

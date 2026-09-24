@@ -26,7 +26,7 @@ _CONFIG_COMMENTS: dict[str, str] = {
     ),
     "default_branch": (
         "The default branch whose database keeps the original name from DATABASE_URL.\n"
-        "# Other branches get suffixed names (e.g., myapp__feature_auth)."
+        "# New branch databases use a readable branch suffix plus a stable hash."
     ),
     "strategy": (
         "Snapshot strategy for cloning databases.\n"

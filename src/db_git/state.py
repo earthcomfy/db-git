@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from db_git.errors import SnapshotError
+
 
 @dataclass
 class BranchDbEntry:
@@ -102,4 +104,12 @@ def get_branch_db(git_dir: Path, branch: str) -> BranchDbEntry | None:
     Look up a branch database entry. Returns None if not found.
     """
     state = load_state(git_dir)
-    return state.databases.get(branch)
+    entry = state.databases.get(branch)
+    if entry is not None:
+        owners = [b for b, e in state.databases.items() if e.db_name == entry.db_name]
+        if len(owners) > 1:
+            raise SnapshotError(
+                f"Database '{entry.db_name}' is recorded for multiple branches: "
+                f"{', '.join(owners)}. Resolve the conflicting state before proceeding."
+            )
+    return entry

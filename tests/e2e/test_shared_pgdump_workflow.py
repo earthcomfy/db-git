@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from db_git.storage import metadata_path, snapshot_dump_path
 from tests._pg_helpers import (
     get_columns,
     get_default_branch,
@@ -293,8 +294,12 @@ class TestSharedPgdumpWorkflow:
 
         seed_users(initialized["db_url"])
         run_db_git("save", "custom-label", cwd=repo, env=env)
-        assert "custom_label.meta.json" in _meta_files(repo)
-        assert "custom_label.dump" in _dump_files(repo)
+        assert metadata_path(_snapshot_dir(repo), "custom-label").name in _meta_files(
+            repo
+        )
+        assert snapshot_dump_path(
+            _snapshot_dir(repo), "custom-label"
+        ).name in _dump_files(repo)
 
     # -----------------------------------------------------------------------
     # Disable / enable / DB_GIT_SKIP
@@ -601,8 +606,12 @@ class TestSharedPgdumpWorkflow:
         git_commit_file(repo, "a.txt", "a\n", env=env)
         run_db_git("save", "feature/auth", cwd=repo, env=env)
 
-        assert "feature__auth.meta.json" in _meta_files(repo)
-        assert "feature__auth.dump" in _dump_files(repo)
+        assert metadata_path(_snapshot_dir(repo), "feature/auth").name in _meta_files(
+            repo
+        )
+        assert snapshot_dump_path(
+            _snapshot_dir(repo), "feature/auth"
+        ).name in _dump_files(repo)
 
     def test_long_branch_name_hash_falls_back(self, initialized: dict) -> None:
         repo = initialized["repo"]

@@ -13,6 +13,7 @@ from db_git.errors import DatabaseError, SnapshotError, TerminationTimeout
 from db_git.storage import (
     make_metadata,
     metadata_path,
+    read_metadata,
     snapshot_db_name,
     write_metadata,
 )
@@ -44,10 +45,21 @@ class TemplateStrategy:
             branch,
             dbname,
             self._backend.max_identifier_length,
+            snapshot_dir=snapshot_dir,
         )
 
         conn = self._backend.connect_maintenance(params)
         try:
+            meta = read_metadata(snapshot_dir, branch)
+            if meta is None:
+                existing = conn.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s", (snapshot_name,)
+                ).fetchone()
+                if existing:
+                    raise SnapshotError(
+                        "Refusing to replace untracked snapshot database "
+                        f"'{snapshot_name}'"
+                    )
             handle_active_connections(conn, dbname, config)
             handle_active_connections(conn, snapshot_name, config)
 
@@ -88,6 +100,7 @@ class TemplateStrategy:
             branch,
             dbname,
             self._backend.max_identifier_length,
+            snapshot_dir=snapshot_dir,
         )
 
         conn = self._backend.connect_maintenance(params)
@@ -123,6 +136,7 @@ class TemplateStrategy:
             branch,
             dbname,
             self._backend.max_identifier_length,
+            snapshot_dir=snapshot_dir,
         )
 
         try:

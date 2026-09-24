@@ -13,7 +13,13 @@ from db_git.backends.postgresql.connections import handle_active_connections
 from db_git.backends.postgresql.template import _create_from_template
 from db_git.db import parse_database_url
 from db_git.errors import SnapshotError, ToolNotFoundError
-from db_git.state import BranchDbEntry, load_state, record_branch_db, remove_branch_db
+from db_git.state import (
+    BranchDbEntry,
+    get_branch_db,
+    load_state,
+    record_branch_db,
+    remove_branch_db,
+)
 
 if TYPE_CHECKING:
     from db_git.config import DbGitConfig
@@ -50,6 +56,8 @@ class PostgresBranchDbManager:
         created_from: str,
         git_dir: Path,
     ) -> None:
+        if target == source:
+            raise SnapshotError("Cannot clone a database onto itself")
         strategy = self._backend.detect_strategy(self._config)
 
         if strategy.name == "template":
@@ -69,6 +77,11 @@ class PostgresBranchDbManager:
         record_branch_db(git_dir, branch, target, created_from)
 
     def drop(self, name: str, branch: str, git_dir: Path) -> None:
+        entry = get_branch_db(git_dir, branch)
+        if entry is None or entry.db_name != name or name == self._params["dbname"]:
+            raise SnapshotError(
+                f"Refusing to drop '{name}': it is not owned by branch '{branch}'"
+            )
         conn = self._backend.connect_maintenance(self._params)
         try:
             handle_active_connections(conn, name, self._config)
@@ -103,13 +116,6 @@ def _create_via_template(
     conn = backend.connect_maintenance(params)
     try:
         handle_active_connections(conn, source, config)
-        handle_active_connections(conn, target, config)
-        conn.execute(
-            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
-                sql.Identifier(target)
-            )
-        )
-
         _create_from_template(conn, target, source)
     except psycopg.Error as e:
         raise SnapshotError(f"Template clone failed: {e}") from e
@@ -147,11 +153,7 @@ def _create_via_pgdump(
 
     conn = backend.connect_maintenance(params)
     try:
-        handle_active_connections(conn, target, config)
         target_ident = sql.Identifier(target)
-        conn.execute(
-            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(target_ident)
-        )
         conn.execute(
             sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(target_ident)
         )
@@ -199,5 +201,5 @@ def _create_via_pgdump(
         stderr = dump_proc.stderr.read().decode() if dump_proc.stderr else ""
         raise SnapshotError(f"pg_dump failed: {stderr.strip()}")
 
-    if restore_result.returncode != 0 and "ERROR" in restore_result.stderr:
+    if restore_result.returncode != 0:
         raise SnapshotError(f"pg_restore failed: {restore_result.stderr.strip()}")
