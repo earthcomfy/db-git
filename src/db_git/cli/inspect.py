@@ -13,7 +13,7 @@ from db_git.errors import DbGitError
 from db_git.git import get_current_branch, get_git_dir, list_branches
 from db_git.recovery import operations
 from db_git.repository import operations_directory
-from db_git.state import load_state
+from db_git.state import get_branch_db, load_state
 from db_git.storage import (
     branch_db_name,
     has_snapshot,
@@ -181,9 +181,23 @@ def status(
         current_status = _shared_current_status(config, backend, current_branch)
         enabled_status = check_enabled()
         recovery_count = len(operations(config.snapshot_dir / ".operations"))
+        display_url = config.database_url
+        if backend.engine == "mysql":
+            from contextlib import closing
+
+            from db_git.backends.mysql.connections import Connection
+            from db_git.backends.mysql.shared import active_database
+
+            params = backend.apply_url_defaults(parse_database_url(config.database_url))
+            with closing(Connection(params)) as conn:
+                display_url = with_database_name(
+                    display_url,
+                    active_database(config.snapshot_dir, str(params["dbname"]), conn),
+                )
         summary = (
+            f"  Mode:       [green]shared[/]\n"
             f"  Branch:     [cyan]{current_branch}[/]\n"
-            f"  Database:   {mask_url(config.database_url)}\n"
+            f"  Database:   {mask_url(display_url)}\n"
             f"  Engine:     [cyan]{backend.engine} {version}[/]\n"
             f"  Strategy:   [green]{detected.name}[/]\n"
             f"  Snapshots:  {len(snapshots)}\n"
@@ -218,6 +232,9 @@ def url(
 ) -> None:
     """
     Print the connectable database URL for the current (or given) branch.
+
+    Shared mode always prints the active working database URL; it does not restore
+    a named branch's snapshot. MySQL also checks recovery and database ownership.
     """
     require_init()
     try:
@@ -226,6 +243,17 @@ def url(
         backend = get_backend(config.database_url)
         params = backend.apply_url_defaults(parse_database_url(config.database_url))
         base_url = with_connection_defaults(config.database_url, params)
+        if backend.engine == "mysql":
+            from db_git.workflow import application_url
+
+            directory = get_git_dir()
+            assert directory is not None
+            typer.echo(
+                application_url(
+                    config, backend, directory, branch or get_current_branch()
+                )
+            )
+            return
         if config.mode != "per-branch":
             typer.echo(base_url)
             return
@@ -343,8 +371,10 @@ def _prune_per_branch(config: DbGitConfig, dry_run: bool, yes: bool) -> None:
         return
 
     sqlite = config.database_url.startswith("sqlite:")
+    retain = sqlite or config.database_url.startswith("mysql:")
+    retained_kind = "file" if sqlite else "database"
     if dry_run:
-        action = "untrack (file retained)" if sqlite else "drop"
+        action = f"untrack ({retained_kind} retained)" if retain else "drop"
         for branch_name, entry in stale:
             console.print(f"  [dim]Would {action}:[/] {entry.db_name} ({branch_name})")
         return
@@ -354,9 +384,14 @@ def _prune_per_branch(config: DbGitConfig, dry_run: bool, yes: bool) -> None:
             "SQLite pruning removes ownership records; database files are retained "
             "for manual cleanup after applications close."
         )
+    if retain and not sqlite:
+        console.print(
+            "MySQL pruning removes ownership records; databases are "
+            "retained for manual cleanup after applications disconnect."
+        )
     if not confirm_prune(
         "The following branch records will be removed:"
-        if sqlite
+        if retain
         else "The following branch databases will be dropped:",
         [
             (entry.db_name, f"{branch_name}, created from {entry.created_from}")
@@ -373,18 +408,17 @@ def _prune_per_branch(config: DbGitConfig, dry_run: bool, yes: bool) -> None:
     for branch_name, entry in stale:
         try:
             manager.drop(entry.db_name, branch_name, git_dir)
-            console.print(
-                f"  {'Untracked (file retained)' if sqlite else 'Dropped'}: "
-                f"{entry.db_name} ({branch_name})"
-            )
+            action = f"Untracked ({retained_kind} retained)" if retain else "Dropped"
+            console.print(f"  {action}: {entry.db_name} ({branch_name})")
             pruned += 1
         except DbGitError as e:
-            console.print(f"  [yellow]Failed to drop {entry.db_name}:[/] {e}")
+            action = "untrack" if retain else "drop"
+            console.print(f"  [yellow]Failed to {action} {entry.db_name}:[/] {e}")
 
     if pruned:
         console.print(
             f"\nPruned {pruned} branch record(s)."
-            if sqlite
+            if retain
             else f"\nDropped {pruned} database(s)."
         )
 
@@ -404,7 +438,15 @@ def _status_per_branch(
     params = backend.apply_url_defaults(parse_database_url(config.database_url))
     dbname = str(params["dbname"])
 
-    if current_branch != "(detached)":
+    if (
+        backend.engine == "mysql"
+        and current_branch not in {"(detached)", config.default_branch}
+        and git_dir is not None
+        and get_branch_db(git_dir, current_branch) is None
+    ):
+        current_db = "(not created)"
+        db_status = "[dim]use db-git create[/]"
+    elif current_branch != "(detached)":
         current_db = branch_db_name(
             current_branch,
             dbname,
@@ -454,7 +496,7 @@ def _shared_snapshot_status(
     """
     Return whether shared-mode snapshot storage still exists.
     """
-    if strategy_name == "pgdump":
+    if strategy_name in {"pgdump", "mysqldump"}:
         return (
             "[green]exists[/]"
             if snapshot_dump_path(config.snapshot_dir, branch).exists()

@@ -80,3 +80,27 @@ jobs:
           sudo apt-get install -y postgresql-client-${{ matrix.postgres }}
       - run: pipx install nox
       - run: nox -s "integration-${{ matrix.python }}(pg_image='postgres:${{ matrix.postgres }}')"
+
+  mysql:
+    name: mysql (py${{ matrix.python }}, mysql${{ matrix.mysql }})
+    runs-on: ubuntu-24.04
+    needs: [lint, types, unit]
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+        mysql: ["8.0", "8.4"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Oracle MySQL clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+      - run: pipx install nox
+      - run: nox -s "mysql-${{ matrix.python }}(mysql_image='mysql:${{ matrix.mysql }}')"

@@ -25,6 +25,7 @@ from db_git.storage import ensure_snapshot_dir
 
 from ._common import debug_enabled
 from ._console import app, console
+from ._init_resources import has_resources
 from ._prompts import (
     detect_default_branch,
     resolve_choice,
@@ -41,6 +42,7 @@ class StrategyChoice(StrEnum):
     template = "template"
     pgdump = "pgdump"
     backup = "backup"
+    mysqldump = "mysqldump"
 
 
 class ConnectionPolicyChoice(StrEnum):
@@ -103,8 +105,11 @@ def init(
             raise typer.Exit(1)
 
         backend = get_backend(resolved_url)
-        if backend.engine == "sqlite":
-            from ._sqlite_init import initialize
+        if backend.engine in {"sqlite", "mysql"}:
+            if backend.engine == "sqlite":
+                from ._sqlite_init import initialize
+            else:
+                from ._mysql_init import initialize
 
             initialize(
                 project_root,
@@ -119,18 +124,20 @@ def init(
                 no_hook=no_hook,
             )
             return
-        if str(existing_config.get("database_url", "")).startswith("sqlite:"):
-            from db_git.repository import operations_directory
-            from db_git.state import load_state
-
-            if load_state(git_dir).databases or any(
-                operations_directory(git_dir).glob("*.json")
-            ):
-                raise DbGitError(
-                    "Existing SQLite ownership or recovery records must keep their "
-                    "configuration. Initialize the other engine "
-                    "in a separate repository."
-                )
+        if str(existing_config.get("database_url", "")).startswith(
+            ("sqlite:", "mysql:")
+        ) and has_resources(project_root, git_dir, existing_config):
+            previous_engine = (
+                "SQLite"
+                if str(existing_config["database_url"]).startswith("sqlite:")
+                else "MySQL"
+            )
+            raise DbGitError(
+                f"Existing {previous_engine} ownership or recovery records "
+                "must keep their "
+                "configuration. Initialize the other engine "
+                "in a separate repository."
+            )
         if (
             strategy is not None
             and strategy.value not in backend.capabilities.strategies

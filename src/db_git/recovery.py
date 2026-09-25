@@ -60,7 +60,7 @@ def operations(root: Path) -> list[Operation]:
                 "rolling_back",
                 "rolled_back",
                 "discarding",
-            } or record.kind not in {"database", "file", "sqlite"}:
+            } or record.kind not in {"database", "file", "sqlite", "mysql"}:
                 raise ValueError("unknown operation state")
             result.append(record)
         except (ValueError, TypeError, KeyError) as e:

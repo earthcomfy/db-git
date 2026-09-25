@@ -100,6 +100,10 @@ def create(
             raise DbGitError("Cannot clone a database onto itself.")
 
         manager.create(target_db, source_db, branch, created_from, git_dir)
+        if backend.engine == "mysql":
+            entry = get_branch_db(git_dir, branch)
+            assert entry is not None
+            target_db = entry.db_name
         console.print(f"[green]Created[/] database: {target_db}")
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
@@ -170,13 +174,13 @@ def reset(
             raise typer.Exit(1)
 
         manager.reset(target_db, seed_db, branch, config.default_branch, git_dir)
-        if backend.engine == "sqlite":
+        if backend.engine in {"sqlite", "mysql"}:
             entry = get_branch_db(git_dir, branch)
             assert entry is not None
             target_db = entry.db_name
             console.print(
-                "[dim]Previous SQLite file retained. Restart applications "
-                "through db-git run to use the new file.[/]"
+                "[dim]Previous database generation retained. Restart applications "
+                "through db-git run to use the new generation.[/]"
             )
         console.print(f"[green]Reset[/] database '{target_db}' from seed '{seed_db}'")
     except DbGitError as e:

@@ -65,3 +65,15 @@ def lint(session: nox.Session) -> None:
     _install(session)
     session.run("ruff", "check", "src/", "tests/")
     session.run("ruff", "format", "--check", "src/", "tests/")
+
+
+@nox.session(python=PYTHONS)
+@nox.parametrize("mysql_image", ["mysql:8.0", "mysql:8.4"])
+def mysql(session: nox.Session, mysql_image: str) -> None:
+    """MySQL shared/per-branch workflows, stored objects, and recovery."""
+    if shutil.which("docker") is None:
+        session.skip("docker not available")
+    _install(session)
+    session.install("PyMySQL[rsa]>=1.1.1")
+    session.env["DB_GIT_TEST_MYSQL_IMAGE"] = mysql_image
+    session.run("pytest", "tests/mysql", "-q", *session.posargs)

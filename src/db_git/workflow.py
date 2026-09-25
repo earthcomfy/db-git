@@ -55,14 +55,27 @@ def application_url(
             )
         database = str(params["dbname"])
         url = base_url
+        if backend.engine == "mysql":
+            from contextlib import closing
+
+            from db_git.backends.mysql.connections import Connection
+            from db_git.backends.mysql.shared import active_database
+
+            with closing(Connection(params)) as conn:
+                database = active_database(config.snapshot_dir, database, conn)
+            url = with_database_name(base_url, database)
     else:
         if branch is None:
-            raise DbGitError("HEAD is detached. Check out a branch before db-git run.")
+            raise DbGitError(
+                "HEAD is detached. Check out a branch before db-git run, "
+                "or pass a branch name to db-git url."
+            )
         database = owned_database(branch, config, backend, git_dir)
         url = with_database_name(base_url, database)
     if not backend.database_exists(config.database_url, database):
         raise DbGitError(
-            "Application database is missing. Inspect db-git doctor and "
+            "Application database is missing or its ownership is invalid. "
+            "Inspect db-git doctor and "
             "create or recover the branch database before launching the application."
         )
     return url

@@ -14,6 +14,10 @@ def parse_database_url(url: str) -> dict[str, str | int | None]:
         from db_git.backends.sqlite.urls import database_path
 
         return {"dbname": str(database_path(url))}
+    if urlparse(url).scheme == "mysql":
+        from db_git.backends.mysql.urls import parse_url
+
+        return parse_url(url)
     try:
         if urlparse(url).scheme not in {"postgres", "postgresql"}:
             raise ConfigError("Expected a postgres:// or postgresql:// URL.")

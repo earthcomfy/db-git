@@ -5,12 +5,13 @@ import re
 import shutil
 import subprocess
 import sys
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
 
-from db_git.backends import DatabaseBackend, get_backend
+from db_git.backends import DatabaseBackend, DbConnection, get_backend
 from db_git.backends.postgresql.operations import operation_scope
 from db_git.db import parse_database_url
 from db_git.errors import HookError
@@ -200,7 +201,16 @@ def handle_post_checkout(
         backend = get_backend(config.database_url)
 
         params = backend.apply_url_defaults(parse_database_url(config.database_url))
-        with operation_scope(backend, params, config.snapshot_dir / ".operations"):
+        scope: AbstractContextManager[DbConnection]
+        if backend.engine == "mysql":
+            from db_git.backends.mysql.operations import operation_scope as mysql_scope
+
+            scope = mysql_scope(params, config.snapshot_dir / ".operations")
+        else:
+            scope = operation_scope(
+                backend, params, config.snapshot_dir / ".operations"
+            )
+        with scope:
             disabled = git_dir / "db-git" / "disabled"
             atomic_write(
                 disabled,
@@ -277,6 +287,10 @@ def _try_restore(backend: DatabaseBackend, config: DbGitConfig, branch: str) -> 
         strategy = backend.detect_strategy(config)
         strategy.restore(config.database_url, branch, config.snapshot_dir, config)
         console.print(f"[green]Restored[/] database for '{branch}'")
+        if backend.engine == "mysql":
+            console.print(
+                "MySQL working URL changed; restart applications through db-git run."
+            )
         return True
     except Exception as e:
         console.print(f"[yellow]Warning:[/] Could not restore '{branch}': {e}")
@@ -337,12 +351,14 @@ def _handle_per_branch_checkout(
     # Default branch uses the seed DB directly
     if curr_branch == config.default_branch:
         console.print(f"[dim]Branch database:[/] {target_db}")
+        _print_application_restart(backend)
         return
 
     # Check if branch DB already exists
     entry = get_branch_db(git_dir, curr_branch)
     if entry and manager.exists(entry.db_name):
         console.print(f"[dim]Branch database:[/] {target_db}")
+        _print_application_restart(backend)
         return
 
     source_db = dbname
@@ -363,12 +379,25 @@ def _handle_per_branch_checkout(
 
     try:
         manager.create(target_db, source_db, curr_branch, created_from, git_dir)
+        if backend.engine == "mysql":
+            # MySQL publishes the restored generation by changing ownership.
+            created = get_branch_db(git_dir, curr_branch)
+            assert created is not None
+            target_db = created.db_name
         console.print(f"[green]Created database:[/] {target_db}")
     except Exception as e:
         console.print(f"[yellow]db-git warning:[/] Could not create '{target_db}': {e}")
         return
 
     console.print(f"[dim]Branch database:[/] {target_db}")
+    _print_application_restart(backend)
+
+
+def _print_application_restart(backend: DatabaseBackend) -> None:
+    if backend.engine == "mysql":
+        console.print(
+            "Restart applications through db-git run to use this branch's database."
+        )
 
 
 def _resolve_db_git_executable() -> str:

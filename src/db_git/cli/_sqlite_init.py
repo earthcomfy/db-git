@@ -8,10 +8,10 @@ from db_git.backends.sqlite.urls import database_path, database_url
 from db_git.config import ensure_config_ignored, load_config, write_config
 from db_git.errors import ConfigError
 from db_git.git import install_hook
-from db_git.repository import operations_directory, shared_state_directory
-from db_git.state import load_state
+from db_git.repository import shared_state_directory
 
 from ._console import console
+from ._init_resources import has_resources
 from ._prompts import detect_default_branch
 
 
@@ -56,19 +56,7 @@ def initialize(
     previous_url = str(existing.get("database_url") or "")
     if previous_url and previous_url.startswith("sqlite:"):
         previous_url = database_url(database_path(previous_url, root))
-    snapshots = Path(str(existing.get("snapshot_dir") or common / "snapshots"))
-    if not snapshots.is_absolute():
-        snapshots = root / snapshots
-    snapshot_roots = {snapshots, common / "snapshots"}
-    if previous_url != database_url(path) and (
-        load_state(git_dir).databases
-        or any(operations_directory(git_dir).glob("*.json"))
-        or any(
-            any(location.glob("*.meta.json"))
-            or any((location / ".operations").glob("*.json"))
-            for location in snapshot_roots
-        )
-    ):
+    if previous_url != database_url(path) and has_resources(root, git_dir, existing):
         raise ConfigError(
             "Existing db-git resources belong to another seed or engine. "
             "Keep their configuration for recovery; "

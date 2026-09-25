@@ -17,25 +17,27 @@ from db_git.repository import (
 
 VALID_CONNECTION_POLICIES = {"terminate", "fail"}
 VALID_MODES = {"shared", "per-branch"}
-VALID_STRATEGIES = {"template", "pgdump", "backup"}
+VALID_STRATEGIES = {"template", "pgdump", "backup", "mysqldump"}
 
 _CONFIG_COMMENTS: dict[str, str] = {
     "database_url": (
-        "Default branch: seed connection URL (PostgreSQL) or file URL (SQLite).\n"
+        "Default branch: seed connection URL (PostgreSQL/MySQL) or file URL (SQLite).\n"
         "# New branch databases can be copied from this seed\n"
         "# or from another branch's recorded database."
     ),
     "mode": (
         "How db-git manages databases across branches.\n"
-        '# "shared": PostgreSQL snapshot/restore into one database on switch\n'
+        '# "shared": snapshot/restore on switch (PostgreSQL/MySQL)\n'
+        "# MySQL restores select a fresh database URL; restart apps afterward.\n"
         '# "per-branch": each branch gets its own database'
     ),
     "default_branch": (
         "The default branch whose database keeps the original name from database_url.\n"
-        "# PostgreSQL uses hashed branch names; SQLite uses unique file generations."
+        "# PostgreSQL uses hashed branch names; SQLite/MySQL use unique generations."
     ),
     "strategy": (
         "Strategy for cloning databases.\n"
+        '# "mysqldump": MySQL dump/restore into a new database generation\n'
         '# "backup": SQLite online backup into a new branch file\n'
         '# "template": uses CREATE DATABASE ... TEMPLATE '
         "(fast, requires CREATEDB privilege)\n"
@@ -45,7 +47,7 @@ _CONFIG_COMMENTS: dict[str, str] = {
         "What to do when active connections block a database operation.\n"
         '# "terminate": kill connections and proceed '
         "(PostgreSQL only; needs superuser or pg_signal_backend)\n"
-        '# "fail": stop with an error (required for SQLite)'
+        '# "fail": stop with an error (required for SQLite/MySQL)'
     ),
 }
 
@@ -113,6 +115,13 @@ def load_config(
             config.mode = "per-branch"
         if "strategy" not in merged:
             config.strategy = "backup"
+        if "on_active_connections" not in merged:
+            config.on_active_connections = "fail"
+    if config.database_url.startswith("mysql:"):
+        if "mode" not in merged:
+            config.mode = "per-branch"
+        if "strategy" not in merged:
+            config.strategy = "mysqldump"
         if "on_active_connections" not in merged:
             config.on_active_connections = "fail"
     _validate_config(config)
@@ -259,6 +268,19 @@ def _validate_config(config: DbGitConfig) -> None:
                 "SQLite cannot terminate application connections; "
                 "use on_active_connections='fail'."
             )
+    elif config.database_url.startswith("mysql:"):
+        from db_git.backends.mysql.urls import parse_url
+
+        parse_url(config.database_url)
+        if config.strategy != "mysqldump":
+            raise ConfigError("MySQL requires strategy='mysqldump'.")
+        if config.on_active_connections != "fail":
+            raise ConfigError(
+                "MySQL requires on_active_connections='fail'; connections are "
+                "never terminated."
+            )
+    elif config.strategy == "mysqldump":
+        raise ConfigError("The mysqldump strategy is only supported by MySQL.")
     elif config.strategy == "backup":
         raise ConfigError("The backup strategy is only supported by SQLite.")
 

@@ -115,11 +115,17 @@ def diagnose(database_url: str | None = None) -> Report:
     try:
         config = load_config({"database_url": database_url}, project_root=root)
         selected = get_backend(config.database_url)
-        if selected.engine == "sqlite":
-            from db_git.backends.sqlite.doctor import check
+        if selected.engine in {"sqlite", "mysql"}:
+            if selected.engine == "sqlite":
+                from db_git.backends.sqlite.doctor import check
+            else:
+                from db_git.backends.mysql.doctor import check
 
             report.add(
-                "configuration", "ok", "Valid SQLite per-branch/backup configuration."
+                "configuration",
+                "ok",
+                f"Valid {selected.engine} "
+                f"{config.mode}/{config.strategy} configuration.",
             )
             _check_storage(report, config, git_dir)
             check(report, config, git_dir)

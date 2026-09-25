@@ -44,7 +44,8 @@ def recover(
         bool,
         typer.Option(
             "--discard",
-            help="Discard a resolved journal and backups (SQLite files are retained).",
+            help="Discard a resolved journal and backups (SQLite/MySQL "
+            "generations are retained).",
         ),
     ] = False,
     yes: Annotated[
@@ -74,7 +75,7 @@ def recover(
                 console.print(
                     f"{entry.id}  {entry.action}  {entry.phase}", markup=False
                 )
-                if entry.kind == "sqlite":
+                if entry.kind in {"sqlite", "mysql"}:
                     console.print(
                         f"  Generation: {entry.target}\n  Staged: {entry.stage}\n"
                         f"  Previous ownership: {entry.before or '(none)'}",
@@ -91,14 +92,17 @@ def recover(
                 console.print(
                     "Use an ID with --finish, --rollback, or --discard. "
                     "PostgreSQL backups are retained until discarded; "
-                    "SQLite files require manual cleanup."
+                    "SQLite files and MySQL generations require manual cleanup."
                 )
             return
         if actions != 1:
             raise DbGitError("Choose exactly one of --finish, --rollback, or --discard")
         backend = get_backend(config.database_url)
-        if backend.engine == "sqlite":
-            from ._sqlite_recover import recover_operation
+        if backend.engine in {"sqlite", "mysql"}:
+            if backend.engine == "sqlite":
+                from ._sqlite_recover import recover_operation
+            else:
+                from ._mysql_recover import recover_operation
 
             recover_operation(
                 config,
@@ -113,7 +117,7 @@ def recover(
                 yes,
             )
             console.print(
-                "SQLite recovery action completed. Files retained; "
+                "Recovery action completed. Database generations retained; "
                 "restart applications after ownership changes."
             )
             return

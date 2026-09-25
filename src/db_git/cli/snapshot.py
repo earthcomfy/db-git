@@ -102,6 +102,12 @@ def restore(
         detected = backend.detect_strategy(config)
         detected.restore(config.database_url, branch, config.snapshot_dir, config)
         console.print(f"[green]Restored[/] database for '{branch}'")
+        if backend.engine == "mysql":
+            console.print(
+                "Active database URL changed. Restart applications through "
+                "db-git run; previous generations and copied disabled events "
+                "are retained."
+            )
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e

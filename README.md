@@ -12,7 +12,8 @@ switching during reviews. It installs a git `post-checkout` hook and keeps your
 local database aligned with the branch you are working on.
 
 > Status: PostgreSQL supports shared and per-branch modes. SQLite supports
-> per-branch databases using its online backup API. MySQL support is planned.
+> per-branch databases using its online backup API. MySQL 8.0/8.4 supports
+> both modes using recoverable database generations.
 
 ## Features
 
@@ -20,7 +21,7 @@ local database aligned with the branch you are working on.
 - Two workflows:
   - `shared`: one database, saved and restored per branch
   - `per-branch`: one database per branch
-- PostgreSQL support and SQLite per-branch databases
+- PostgreSQL and MySQL support, plus SQLite per-branch databases
 - Two PostgreSQL snapshot strategies:
   - `template`: fast database clones using `CREATE DATABASE ... TEMPLATE`
   - `pgdump`: portable snapshots using `pg_dump` and `pg_restore`
@@ -90,6 +91,105 @@ psql "$(db-git url)"
 
 Your configured seed URL stays separate from the application's `DATABASE_URL`,
 so subsequent db-git commands keep targeting the correct seed.
+
+## MySQL
+
+Install the optional driver and Oracle MySQL's `mysql` and `mysqldump` clients:
+
+```bash
+uv tool install 'db-git[mysql]' # or pip install 'db-git[mysql]'
+db-git init --database-url 'mysql://dev:password@localhost:3306/myapp'
+git checkout -b feature/auth
+db-git run -- npm run dev
+```
+
+MySQL supports **per-branch and shared modes**, the `mysqldump` strategy, and the
+`fail` connection policy. Per-branch is the default. Supported server targets are
+**MySQL 8.0 and 8.4**; MariaDB and other server versions are rejected.
+
+For snapshots with one active working database, choose shared mode in a fresh
+repository (existing resources must retain their mode for recovery):
+
+```bash
+db-git init --database-url 'mysql://dev:password@localhost:3306/myapp' --mode shared
+db-git save main
+db-git restore main
+db-git run -- npm run dev
+```
+
+Shared checkout saves the previous branch's working database and restores the
+new branch's snapshot when available. Each restore builds a **fresh database
+first**, then atomically selects its URL. It does not replace the configured seed
+under the same name. `db-git url`, `run`, and `status` resolve the active generation;
+the configured `database_url` remains the management/seed connection. Restart
+applications through `db-git run` after restore, reset, rollback, or branch switch.
+Existing connections continue using their previous databases.
+
+`db-git run -- <command>` supplies `DATABASE_URL` to the process it starts. Your
+application must read that variable; an application-specific configuration or
+dotenv loader that overrides it will still connect to its own configured database.
+The command does not rewrite `.env` files or restart an already-running server.
+After checkout or restore, stop that server and run the command again. Use
+`db-git url` when configuring a database GUI; it prints credentials, so treat its
+output as a connection secret. Both `url` and `run` refuse unresolved operations
+or a missing/invalid managed database.
+
+Cloning and snapshots preserve InnoDB tables, indexes, internal foreign keys,
+binary data, views (in dependency order), procedures, functions, triggers, and
+events. Stored programs retain their creation SQL mode; views use MySQL's
+normalized definitions. Character settings and applicable time zone/database
+collation settings are preserved. Qualified source references point to the clone;
+string values and comments remain unchanged. Definers become the cloning account,
+while SQL SECURITY DEFINER/INVOKER behavior is retained. Data loads before triggers
+are created. Copied events are always **DISABLED** and **ON COMPLETION PRESERVE**;
+enable them manually only when you intend scheduled work to run in that database.
+The source's event status is unchanged.
+
+Non-InnoDB tables, cross-database foreign keys/references, dynamic SQL, executable
+comments, and ambiguous schema-name aliases in stored objects are rejected rather
+than copied with references to the wrong database. Use explicit aliases when
+qualified references cannot be resolved. Stored-definition validation supports a
+conservative SQL subset: parenthesized table groups, derived-table references,
+and qualified aliases inside DDL statements are refused. Ordinary joins, table
+aliases, scalar subqueries, and simple local DDL are supported. Snapshot archives
+bundle table data and
+stored-object definitions; incomplete or invalid archives are never published as
+the working database.
+
+Per-branch `prune` removes ownership records. Shared `prune` removes snapshot
+archives through recoverable file operations; `recover --discard` releases their
+retained backup files. Database generations are **never automatically dropped**.
+Stop applications and review ownership/recovery records before manually deleting
+retained databases. Failed restores can leave unselected generations for inspection.
+
+Permissions may be granted directly or through **default active roles**. Required
+source-schema privileges are `SELECT`, `SHOW VIEW`, `TRIGGER`, and `EVENT`.
+Destination generations need `CREATE`, `INSERT`, `ALTER`, `DROP`, `INDEX`,
+`REFERENCES`, `CREATE VIEW`, `CREATE ROUTINE`, `ALTER ROUTINE`, `EXECUTE`, `TRIGGER`,
+and `EVENT`; grant source privileges there too if you will clone or snapshot those
+generations. The managed schema prefix is `_dbgit_` followed by the first 12 hex
+digits of SHA-256 of the seed database name, then `_`; grant on that prefix with
+an appropriate MySQL database grant pattern. `BACKUP_ADMIN` and `SHOW_ROUTINE`
+(or global `SELECT`) remain global requirements. Partial revokes require manual
+grant reconciliation. `doctor` checks grants without changing them. On servers
+with binary logging, stored-function creation may additionally require the
+server administrator to configure `log_bin_trust_function_creators` or grant
+MySQL's required administrative privilege; db-git does not change server settings.
+
+A backup lock blocks table-schema changes during the transactional dump while
+allowing data writes. Stored-object definitions are checked again after the dump
+to detect concurrent changes. Lock acquisition fails after five seconds; db-git
+never terminates application connections. Multiple worktrees require per-branch
+mode, as with PostgreSQL.
+
+URLs require an explicit host, user, and database. Supported options: `ssl_mode`
+(`REQUIRED`, `VERIFY_CA`, `VERIFY_IDENTITY`, or `DISABLED`), `ssl_ca`, `ssl_cert`,
+`ssl_key`, and `connect_timeout` (driver/`mysql` client, 1–60 seconds). TLS encryption
+is required by default; use `VERIFY_IDENTITY` with a trusted CA for server identity
+verification. Connection options survive branch URL rewriting. Passwords use a
+temporary owner-only client option file, never command arguments or inherited
+`MYSQL_PWD`. Keep the reserved `__dbgit_generation` table intact for recovery.
+Generated database names fit MySQL's 64-character limit.
 
 ## SQLite
 
@@ -213,14 +313,15 @@ extra worktrees before resuming shared mode.
 
 ### Shared Mode
 
-Shared mode keeps the database name from the configured `database_url`.
+PostgreSQL shared mode keeps the name from the configured `database_url`.
+MySQL shared mode selects a fresh working database URL on restore; restart apps
+through `db-git run` afterward.
 
 Use this when:
 
-- You want one familiar local database name
+- You want one active working database and branch-specific snapshots
 - You want branch-specific snapshots
-- You are comfortable with db-git dropping and restoring that local database
-  during branch switches
+- You restart applications after restoring or switching branches
 
 ### Per-Branch Mode
 
@@ -353,7 +454,7 @@ db-git run -- psql
 
 `run` resolves the current branch once, verifies its database exists, then launches
 the command with `DATABASE_URL` set to that database. In shared mode it uses the
-configured database. The child also receives `DB_GIT_DATABASE_URL` containing the
+configured database on PostgreSQL or the active generation on MySQL. The child also receives `DB_GIT_DATABASE_URL` containing the
 seed URL, so nested db-git commands retain the management connection.
 
 The command inherits your working directory, input/output, and remaining
@@ -465,10 +566,10 @@ Supported configuration keys:
 | Key | Description | Default |
 | --- | --- | --- |
 | `database_url` | Database connection URL | required |
-| `mode` | PostgreSQL: either mode; SQLite: `per-branch` | PostgreSQL: `shared`; SQLite: `per-branch` |
+| `mode` | PostgreSQL/MySQL: either mode; SQLite: `per-branch` | PostgreSQL: `shared`; SQLite/MySQL: `per-branch` |
 | `default_branch` | Seed branch for per-branch mode | `main` |
-| `strategy` | PostgreSQL: `template` or `pgdump`; SQLite: `backup` | required for PostgreSQL; `backup` for SQLite |
-| `on_active_connections` | PostgreSQL: `terminate` or `fail`; SQLite: `fail` | PostgreSQL: `terminate`; SQLite: `fail` |
+| `strategy` | PostgreSQL: `template` or `pgdump`; SQLite: `backup`; MySQL: `mysqldump` | required for PostgreSQL; SQLite/MySQL use engine defaults |
+| `on_active_connections` | PostgreSQL: `terminate` or `fail`; SQLite/MySQL: `fail` | PostgreSQL: `terminate`; SQLite/MySQL: `fail` |
 | `snapshot_dir` | Shared-mode snapshot metadata/dump directory | `db-git/snapshots` under Git’s common directory |
 | `max_snapshots` | Snapshot count kept by prune logic | `20` |
 | `backup_timeout_ms` | SQLite backup deadline in milliseconds | `5000` |
@@ -595,13 +696,13 @@ If later work changed a resource or its metadata, recovery refuses to overwrite 
 
 `db-git status` shows how many recovery records are retained. Backups consume
 local disk space or databases on the same PostgreSQL server until explicitly
-discarded. SQLite files remain until manually removed; pruning alone does not free
-retained storage. Keep the journals
+discarded. SQLite files and MySQL generations remain until manually removed;
+pruning or discarding their journals does not free retained storage. Keep the journals
 until their recovery resources have been resolved and discarded.
 
 Concurrent db-git writers are rejected with a retry message. Process locks protect
-local state, and PostgreSQL advisory locks protect operations on the same configured
-base database, including operations from another repository. These locks coordinate
+local state. PostgreSQL advisory locks and MySQL named locks protect operations on
+the same configured seed database, including operations from another repository. These locks coordinate
 db-git processes; active application connections follow `on_active_connections`.
 
 ### Recover after a failed branch switch
@@ -666,9 +767,21 @@ Run checks:
 
 ```bash
 uv run ruff check .
-uv run mypy src tests
-uv run pytest tests/unit
+uv run mypy src
+uv run pytest tests/unit tests/sqlite
 ```
+
+For MySQL development, install its optional driver and Oracle MySQL clients, then
+run the Docker-backed workflow and recovery tests against each supported server:
+
+```bash
+uv sync --group dev --extra mysql
+DB_GIT_TEST_MYSQL_IMAGE=mysql:8.0 uv run pytest tests/mysql
+DB_GIT_TEST_MYSQL_IMAGE=mysql:8.4 uv run pytest tests/mysql
+```
+
+CI runs both MySQL workflows, stored-object cloning, and recovery tests on
+Python 3.12 and 3.13 against MySQL 8.0 and 8.4.
 
 Run the full nox suite:
 

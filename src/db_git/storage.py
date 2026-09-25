@@ -68,6 +68,10 @@ def branch_db_name(
         from db_git.backends.sqlite.branch_db import branch_name
 
         return branch_name(branch, dbname, default_branch, git_dir)
+    if engine == "mysql":
+        from db_git.backends.mysql.branch_db import branch_name
+
+        return branch_name(branch, dbname, default_branch, git_dir)
     if branch == default_branch:
         return dbname
     if git_dir is not None:

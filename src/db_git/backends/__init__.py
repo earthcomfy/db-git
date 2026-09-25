@@ -17,6 +17,7 @@ _BACKEND_REGISTRY: dict[str, type[DatabaseBackend]] = {}
 _BUILTIN_BACKENDS: dict[str, str] = {
     "postgresql": "db_git.backends.postgresql.backend",
     "sqlite": "db_git.backends.sqlite.backend",
+    "mysql": "db_git.backends.mysql.backend",
 }
 
 

@@ -37,6 +37,9 @@ dependencies = [
     "psycopg[binary]>=3.3.0",
 ]
 
+[project.optional-dependencies]
+mysql = ["PyMySQL[rsa]>=1.1.1"]
+
 [dependency-groups]
 dev = [
     "mypy>=1.20.0",
@@ -79,7 +82,7 @@ output_format = "md"
 markers = ["integration: integration tests", "e2e: end-to-end tests"]
 
 [[tool.mypy.overrides]]
-module = "testcontainers.*"
+module = ["testcontainers.*", "pymysql", "pymysql.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
