@@ -24,9 +24,10 @@ from db_git.recovery import run_operation
 from db_git.repository import require_safe_shared_mode
 from db_git.resources import FileResources
 from db_git.storage import (
-    has_snapshot,
+    Checkpoint,
     make_metadata,
     metadata_path,
+    read_metadata,
     snapshot_dump_path,
 )
 
@@ -62,7 +63,13 @@ class PgDumpStrategy:
         self._pg_version = pg_version
 
     def save(
-        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
+        self,
+        db_url: str,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint: Checkpoint | None = None,
     ) -> None:
         require_safe_shared_mode(config.mode)
         pg_dump = shutil.which("pg_dump")
@@ -72,9 +79,13 @@ class PgDumpStrategy:
             )
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
         root = snapshot_dir / ".operations"
+        checkpoint_id = checkpoint.id if checkpoint else None
         with operation_scope(self._backend, params, root):
-            dump = snapshot_dump_path(snapshot_dir, branch)
-            if dump.exists() and not has_snapshot(snapshot_dir, branch):
+            dump = snapshot_dump_path(snapshot_dir, branch, checkpoint_id)
+            if (
+                dump.exists()
+                and read_metadata(snapshot_dir, branch, checkpoint_id) is None
+            ):
                 raise SnapshotError(f"Refusing to replace untracked dump file {dump}")
 
             def build(stage: str) -> None:
@@ -98,6 +109,10 @@ class PgDumpStrategy:
                     self._backend.engine,
                     str(self._pg_version),
                     Path(stage).stat().st_size,
+                    checkpoint=checkpoint,
+                    resource_identity=FileResources().identity(stage)
+                    if checkpoint
+                    else None,
                 )
                 return json.dumps(asdict(meta), indent=2) + "\n"
 
@@ -109,13 +124,20 @@ class PgDumpStrategy:
                 server=server_identity(params),
                 target=str(dump.resolve()),
                 names=lambda identifier: file_names(root, identifier),
-                metadata=metadata_path(snapshot_dir, branch),
+                metadata=metadata_path(snapshot_dir, branch, checkpoint_id),
                 build=build,
                 after=after,
+                replace=checkpoint is None,
             )
 
     def restore(
-        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
+        self,
+        db_url: str,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
     ) -> None:
         require_safe_shared_mode(config.mode)
         pg_restore = shutil.which("pg_restore")
@@ -126,7 +148,7 @@ class PgDumpStrategy:
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
         root = snapshot_dir / ".operations"
         with operation_scope(self._backend, params, root) as conn:
-            dump = snapshot_dump_path(snapshot_dir, branch)
+            dump = snapshot_dump_path(snapshot_dir, branch, checkpoint_id)
             if not dump.exists():
                 raise SnapshotError(
                     f"No dump file found for branch '{branch}' at {dump}"
@@ -158,16 +180,23 @@ class PgDumpStrategy:
                 after=lambda _: None,
             )
 
-    def cleanup(self, branch: str, snapshot_dir: Path, config: DbGitConfig) -> None:
+    def cleanup(
+        self,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
+    ) -> None:
         require_safe_shared_mode(config.mode)
         params = self._backend.apply_url_defaults(
             parse_database_url(config.database_url)
         )
         root = snapshot_dir / ".operations"
         with operation_scope(self._backend, params, root):
-            if not has_snapshot(snapshot_dir, branch):
+            if read_metadata(snapshot_dir, branch, checkpoint_id) is None:
                 return
-            dump = snapshot_dump_path(snapshot_dir, branch)
+            dump = snapshot_dump_path(snapshot_dir, branch, checkpoint_id)
             run_operation(
                 root,
                 FileResources(),
@@ -176,7 +205,7 @@ class PgDumpStrategy:
                 server=server_identity(params),
                 target=str(dump.resolve()),
                 names=lambda identifier: file_names(root, identifier),
-                metadata=metadata_path(snapshot_dir, branch),
+                metadata=metadata_path(snapshot_dir, branch, checkpoint_id),
                 build=None,
                 after=lambda _: None,
             )

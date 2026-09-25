@@ -54,18 +54,24 @@ def check(report: Report, config: DbGitConfig, git_dir: Path | None) -> None:
             )
             if config.mode == "shared":
                 from db_git.backends.mysql.shared import active_database
+                from db_git.history import list_checkpoints, verify_checkpoint
                 from db_git.repository import require_safe_shared_mode
                 from db_git.storage import list_snapshots, snapshot_dump_path
 
                 require_safe_shared_mode(config.mode)
                 current = active_database(config.snapshot_dir, seed, conn)
                 report.add("database.active", "ok", f"Active MySQL database: {current}")
-                for snapshot in list_snapshots(config.snapshot_dir):
+                for snapshot in [
+                    *list_snapshots(config.snapshot_dir),
+                    *list_checkpoints(config.snapshot_dir),
+                ]:
+                    if snapshot.checkpoint_id is not None:
+                        verify_checkpoint(snapshot, config, MySQLBackend(), conn)
                     if (
                         snapshot.engine != "mysql"
                         or snapshot.database != seed
                         or not snapshot_dump_path(
-                            config.snapshot_dir, snapshot.branch
+                            config.snapshot_dir, snapshot.branch, snapshot.checkpoint_id
                         ).is_file()
                     ):
                         raise DbGitError(

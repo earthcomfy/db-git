@@ -178,6 +178,9 @@ def status(
             return
 
         snapshots = list_snapshots(config.snapshot_dir)
+        from db_git.history import list_checkpoints
+
+        checkpoints = list_checkpoints(config.snapshot_dir)
         current_status = _shared_current_status(config, backend, current_branch)
         enabled_status = check_enabled()
         recovery_count = len(operations(config.snapshot_dir / ".operations"))
@@ -201,6 +204,7 @@ def status(
             f"  Engine:     [cyan]{backend.engine} {version}[/]\n"
             f"  Strategy:   [green]{detected.name}[/]\n"
             f"  Snapshots:  {len(snapshots)}\n"
+            f"  Checkpoints: {len(checkpoints)} (db-git history)\n"
             f"  Current:    {current_status}\n"
             f"  Enabled:    {enabled_status}\n"
             f"  Recovery:   {recovery_count} records "

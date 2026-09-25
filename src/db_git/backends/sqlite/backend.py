@@ -19,13 +19,20 @@ from db_git.errors import ConfigError
 
 if TYPE_CHECKING:
     from db_git.config import DbGitConfig
+    from db_git.storage import Checkpoint
 
 
 class BackupStrategy:
     name = "backup"
 
     def save(
-        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
+        self,
+        db_url: str,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint: Checkpoint | None = None,
     ) -> None:
         raise ConfigError(
             "SQLite supports per-branch mode; use create/reset "
@@ -33,13 +40,26 @@ class BackupStrategy:
         )
 
     def restore(
-        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
+        self,
+        db_url: str,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
     ) -> None:
         raise ConfigError(
             "SQLite shared-mode restore is not supported; use per-branch reset."
         )
 
-    def cleanup(self, branch: str, snapshot_dir: Path, config: DbGitConfig) -> None:
+    def cleanup(
+        self,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
+    ) -> None:
         raise ConfigError(
             "SQLite file cleanup is manual; close applications "
             "before removing retained files."

@@ -66,6 +66,13 @@ def save(
 @app.command()
 def restore(
     branch: Annotated[str | None, typer.Argument()] = None,
+    checkpoint: Annotated[
+        str | None,
+        typer.Option(
+            "--checkpoint",
+            help="Restore an immutable checkpoint name or ID for this branch.",
+        ),
+    ] = None,
     database_url: Annotated[
         str | None,
         typer.Option("--database-url"),
@@ -77,6 +84,26 @@ def restore(
     require_init()
     try:
         config = load_config(cli_overrides={"database_url": database_url})
+
+        if checkpoint is not None:
+            from db_git.history import require_history, restore_checkpoint
+
+            require_history(config)
+            branch = branch or get_current_branch()
+            if branch is None:
+                raise DbGitError("HEAD is detached. Specify a branch name.")
+            meta = restore_checkpoint(config, branch, checkpoint)
+            console.print(
+                f"Restored checkpoint {meta.checkpoint_id} for '{branch}'. "
+                "Checkpoint retained.",
+                markup=False,
+            )
+            if get_backend(config.database_url).engine == "mysql":
+                console.print(
+                    "Active database URL changed. Restart applications through "
+                    "db-git run."
+                )
+            return
 
         if config.mode == "per-branch":
             console.print(

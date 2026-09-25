@@ -15,10 +15,18 @@ from db_git.state import get_branch_db, load_state
 _DEFAULT_MAX_IDENTIFIER = 63
 
 
+@dataclass(frozen=True)
+class Checkpoint:
+    """An immutable snapshot identity, optionally protected by a user-given name."""
+
+    id: str
+    name: str | None = None
+
+
 @dataclass
 class SnapshotMetadata:
     """
-    Metadata sidecar for a database snapshot.
+    Metadata for an ordinary branch snapshot or an immutable checkpoint.
     """
 
     branch: str
@@ -29,6 +37,9 @@ class SnapshotMetadata:
     engine_version: str
     db_git_version: str
     file_size_bytes: int | None
+    checkpoint_id: str | None = None
+    checkpoint_name: str | None = None
+    resource_identity: str | None = None
 
 
 def sanitize_branch_name(branch: str, max_length: int = _DEFAULT_MAX_IDENTIFIER) -> str:
@@ -114,8 +125,16 @@ def snapshot_db_name(
     max_length: int = _DEFAULT_MAX_IDENTIFIER,
     *,
     snapshot_dir: Path | None = None,
+    checkpoint_id: str | None = None,
 ) -> str:
-    """Retain legacy names only when their metadata identifies the exact branch."""
+    """Give checkpoints distinct names; keep metadata-owned legacy branch names."""
+    if checkpoint_id is not None:
+        validate_checkpoint_id(checkpoint_id)
+        return _hashed_name(
+            f"_dbgit_{dbname}_checkpoint_{checkpoint_id}",
+            json.dumps([dbname, branch, checkpoint_id]),
+            max_length,
+        )
     if snapshot_dir is not None:
         path = metadata_path(snapshot_dir, branch)
         legacy = snapshot_dir / f"{sanitize_branch_name(branch)}.meta.json"
@@ -128,9 +147,11 @@ def snapshot_db_name(
     )
 
 
-def snapshot_dump_path(snapshot_dir: Path, branch: str) -> Path:
-    """Resolve the dump alongside the branch's owned metadata."""
-    meta = metadata_path(snapshot_dir, branch)
+def snapshot_dump_path(
+    snapshot_dir: Path, branch: str, checkpoint_id: str | None = None
+) -> Path:
+    """Resolve a branch snapshot or checkpoint dump alongside its owned metadata."""
+    meta = metadata_path(snapshot_dir, branch, checkpoint_id)
     return meta.with_name(meta.name.removesuffix(".meta.json") + ".dump")
 
 
@@ -139,24 +160,42 @@ def _read_metadata_file(path: Path) -> SnapshotMetadata | None:
         return None
     try:
         return SnapshotMetadata(**json.loads(path.read_text()))
-    except (json.JSONDecodeError, TypeError, KeyError) as e:
+    except (json.JSONDecodeError, UnicodeError, TypeError, KeyError) as e:
         raise SnapshotError(
             f"Invalid snapshot metadata at {path}; repair it first"
         ) from e
 
 
-def metadata_path(snapshot_dir: Path, branch: str) -> Path:
-    """Prefer new names; reuse a legacy path only when its branch matches exactly."""
+def validate_checkpoint_id(identifier: str) -> None:
+    if not isinstance(identifier, str) or not re.fullmatch(r"[a-f0-9]{32}", identifier):
+        raise SnapshotError("Invalid checkpoint ID; use an ID from db-git history.")
+
+
+def metadata_path(
+    snapshot_dir: Path, branch: str, checkpoint_id: str | None = None
+) -> Path:
+    """Resolve a checkpoint ID, or a branch snapshot with legacy ownership checks."""
+    if checkpoint_id is not None:
+        validate_checkpoint_id(checkpoint_id)
+        path = snapshot_dir / f"checkpoint_{checkpoint_id}.meta.json"
+        meta = _read_metadata_file(path)
+        if meta is not None and (
+            meta.branch != branch or meta.checkpoint_id != checkpoint_id
+        ):
+            raise SnapshotError(
+                f"Checkpoint metadata does not match its identity: {path}"
+            )
+        return path
     stem = _hashed_name(sanitize_branch_name(branch), branch, _DEFAULT_MAX_IDENTIFIER)
     path = snapshot_dir / f"{stem}.meta.json"
     meta = _read_metadata_file(path)
     if meta is not None:
-        if meta.branch != branch:
+        if meta.branch != branch or meta.checkpoint_id is not None:
             raise SnapshotError(f"Snapshot name collision at {path}")
         return path
     legacy = snapshot_dir / f"{sanitize_branch_name(branch)}.meta.json"
     meta = _read_metadata_file(legacy)
-    if meta is not None and meta.branch == branch:
+    if meta is not None and meta.branch == branch and meta.checkpoint_id is None:
         return legacy
     return path
 
@@ -173,20 +212,22 @@ def write_metadata(snapshot_dir: Path, metadata: SnapshotMetadata) -> None:
     Write snapshot metadata to a JSON sidecar file.
     """
     ensure_snapshot_dir(snapshot_dir)
-    path = metadata_path(snapshot_dir, metadata.branch)
+    path = metadata_path(snapshot_dir, metadata.branch, metadata.checkpoint_id)
     atomic_write(path, json.dumps(asdict(metadata), indent=2) + "\n")
 
 
-def read_metadata(snapshot_dir: Path, branch: str) -> SnapshotMetadata | None:
+def read_metadata(
+    snapshot_dir: Path, branch: str, checkpoint_id: str | None = None
+) -> SnapshotMetadata | None:
     """
     Read snapshot metadata from a JSON sidecar file.
     """
-    return _read_metadata_file(metadata_path(snapshot_dir, branch))
+    return _read_metadata_file(metadata_path(snapshot_dir, branch, checkpoint_id))
 
 
 def list_snapshots(snapshot_dir: Path) -> list[SnapshotMetadata]:
     """
-    Read all snapshot metadata files in the snapshot directory.
+    Read ordinary branch snapshots; immutable checkpoints have separate history.
     """
     if not snapshot_dir.exists():
         return []
@@ -194,7 +235,9 @@ def list_snapshots(snapshot_dir: Path) -> list[SnapshotMetadata]:
     for path in sorted(snapshot_dir.glob("*.meta.json")):
         try:
             data = json.loads(path.read_text())
-            snapshots.append(SnapshotMetadata(**data))
+            metadata = SnapshotMetadata(**data)
+            if metadata.checkpoint_id is None:
+                snapshots.append(metadata)
         except (json.JSONDecodeError, TypeError, KeyError):
             continue
     return snapshots
@@ -214,6 +257,9 @@ def make_metadata(
     engine: str,
     engine_version: str,
     file_size_bytes: int | None = None,
+    *,
+    checkpoint: Checkpoint | None = None,
+    resource_identity: str | None = None,
 ) -> SnapshotMetadata:
     """
     Create a SnapshotMetadata with current timestamp and version.
@@ -227,6 +273,9 @@ def make_metadata(
         engine_version=engine_version,
         db_git_version=__version__,
         file_size_bytes=file_size_bytes,
+        checkpoint_id=checkpoint.id if checkpoint else None,
+        checkpoint_name=checkpoint.name if checkpoint else None,
+        resource_identity=resource_identity,
     )
 
 

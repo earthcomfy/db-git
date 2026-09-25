@@ -269,6 +269,24 @@ def diagnose(database_url: str | None = None) -> Report:
                     "ok",
                     "Configured database exists; catalog ownership checks passed.",
                 )
+            if config.mode == "shared":
+                from db_git.history import list_checkpoints, verify_checkpoint
+
+                try:
+                    for checkpoint in list_checkpoints(config.snapshot_dir):
+                        verify_checkpoint(checkpoint, config, backend, conn)
+                    report.add(
+                        "history.resources",
+                        "ok",
+                        "Checkpoint resources match their recorded identities.",
+                    )
+                except (DbGitError, OSError):
+                    report.add(
+                        "history.resources",
+                        "error",
+                        "A checkpoint is missing, changed, or mismatched.",
+                        "Preserve history and inspect db-git recover.",
+                    )
         finally:
             conn.close()
     except (DbGitError, psycopg.Error, OSError, ValueError):
@@ -404,6 +422,19 @@ def _check_storage(report: Report, config: DbGitConfig, git_dir: Path | None) ->
             "Preserve the journal files for repair; do not delete them to bypass "
             "recovery.",
         )
+    if config.mode == "shared":
+        from db_git.history import list_checkpoints
+
+        try:
+            checkpoints = list_checkpoints(config.snapshot_dir)
+            report.add("history", "ok", f"{len(checkpoints)} checkpoint(s) recorded.")
+        except (DbGitError, OSError, ValueError, TypeError):
+            report.add(
+                "history",
+                "error",
+                "Checkpoint metadata is invalid.",
+                "Preserve history files and inspect db-git recover.",
+            )
 
 
 def _check_clients(
@@ -523,34 +554,42 @@ def _check_state(
                         "Branch database ownership is duplicated or points to the seed."
                     )
                 expected.append(entry.db_name)
-        seen: set[str] = set()
+        seen: set[tuple[str, str | None]] = set()
         for path in sorted(config.snapshot_dir.glob("*.meta.json")):
             meta = SnapshotMetadata(**json.loads(path.read_text()))
-            if not isinstance(meta.branch, str) or meta.branch in seen:
+            identity = (meta.branch, meta.checkpoint_id)
+            if not isinstance(meta.branch, str) or identity in seen:
                 raise _StateProblem(
                     "Snapshot metadata has an invalid or duplicated branch."
                 )
-            seen.add(meta.branch)
+            seen.add(identity)
             if (
                 meta.database != base
                 or meta.engine != "postgresql"
-                or meta.strategy != config.strategy
+                or (meta.checkpoint_id is None and meta.strategy != config.strategy)
             ):
                 raise _StateProblem(
                     "Snapshot database, engine, or strategy differs from configuration."
                 )
-            if path != metadata_path(config.snapshot_dir, meta.branch):
+            if path != metadata_path(
+                config.snapshot_dir, meta.branch, meta.checkpoint_id
+            ):
                 raise _StateProblem(
                     "Snapshot metadata filename does not match its recorded branch."
                 )
             if meta.strategy == "pgdump":
-                dump = snapshot_dump_path(config.snapshot_dir, meta.branch)
+                dump = snapshot_dump_path(
+                    config.snapshot_dir, meta.branch, meta.checkpoint_id
+                )
                 if not dump.is_file() or dump.stat().st_size == 0:
                     raise _StateProblem("A recorded snapshot dump is missing or empty.")
             elif meta.strategy == "template":
                 expected.append(
                     snapshot_db_name(
-                        meta.branch, base, snapshot_dir=config.snapshot_dir
+                        meta.branch,
+                        base,
+                        snapshot_dir=config.snapshot_dir,
+                        checkpoint_id=meta.checkpoint_id,
                     )
                 )
             else:

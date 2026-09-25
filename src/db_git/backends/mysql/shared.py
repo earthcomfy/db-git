@@ -22,7 +22,7 @@ from db_git.recovery import run_operation
 from db_git.repository import require_safe_shared_mode
 from db_git.resources import FileResources
 from db_git.storage import (
-    has_snapshot,
+    Checkpoint,
     make_metadata,
     metadata_path,
     read_metadata,
@@ -73,18 +73,25 @@ class MySQLDumpStrategy:
     name = "mysqldump"
 
     def save(
-        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
+        self,
+        db_url: str,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint: Checkpoint | None = None,
     ) -> None:
         require_safe_shared_mode(config.mode)
         params = {k: v for k, v in parse_url(db_url).items() if v is not None}
         seed = str(params["dbname"])
         root = snapshot_dir / ".operations"
+        checkpoint_id = checkpoint.id if checkpoint else None
         with operation_scope(params, root) as conn:
             source = active_database(snapshot_dir, seed, conn)
-            dump = snapshot_dump_path(snapshot_dir, branch)
-            if dump.exists() and not has_snapshot(snapshot_dir, branch):
+            dump = snapshot_dump_path(snapshot_dir, branch, checkpoint_id)
+            existing = read_metadata(snapshot_dir, branch, checkpoint_id)
+            if dump.exists() and existing is None:
                 raise DbGitError("Refusing to replace an untracked MySQL snapshot.")
-            existing = read_metadata(snapshot_dir, branch)
             if existing and (existing.engine != "mysql" or existing.database != seed):
                 raise DbGitError("Existing snapshot belongs to another engine or seed.")
 
@@ -96,6 +103,10 @@ class MySQLDumpStrategy:
                     "mysql",
                     server_version(conn),
                     Path(stage).stat().st_size,
+                    checkpoint=checkpoint,
+                    resource_identity=FileResources().identity(stage)
+                    if checkpoint
+                    else None,
                 )
                 return json.dumps(asdict(meta), indent=2) + "\n"
 
@@ -107,13 +118,20 @@ class MySQLDumpStrategy:
                 server=server_identity(conn, seed),
                 target=str(dump.resolve()),
                 names=lambda token: file_names(root, token),
-                metadata=metadata_path(snapshot_dir, branch),
+                metadata=metadata_path(snapshot_dir, branch, checkpoint_id),
                 build=lambda stage: capture(conn, params, source, Path(stage)),
                 after=after,
+                replace=checkpoint is None,
             )
 
     def restore(
-        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
+        self,
+        db_url: str,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
     ) -> None:
         require_safe_shared_mode(config.mode)
         params = {k: v for k, v in parse_url(db_url).items() if v is not None}
@@ -121,12 +139,12 @@ class MySQLDumpStrategy:
         root = snapshot_dir / ".operations"
         with operation_scope(params, root) as conn:
             previous = active_database(snapshot_dir, seed, conn)
-            meta = read_metadata(snapshot_dir, branch)
+            meta = read_metadata(snapshot_dir, branch, checkpoint_id)
             if meta is None or meta.engine != "mysql" or meta.database != seed:
                 raise DbGitError(
                     "MySQL snapshot metadata does not match the configured seed."
                 )
-            dump = snapshot_dump_path(snapshot_dir, branch)
+            dump = snapshot_dump_path(snapshot_dir, branch, checkpoint_id)
 
             def after(stage: str) -> str:
                 return (
@@ -158,14 +176,21 @@ class MySQLDumpStrategy:
                 after=after,
             )
 
-    def cleanup(self, branch: str, snapshot_dir: Path, config: DbGitConfig) -> None:
+    def cleanup(
+        self,
+        branch: str,
+        snapshot_dir: Path,
+        config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
+    ) -> None:
         require_safe_shared_mode(config.mode)
         params = {
             k: v for k, v in parse_url(config.database_url).items() if v is not None
         }
         root = snapshot_dir / ".operations"
         with operation_scope(params, root) as conn:
-            meta = read_metadata(snapshot_dir, branch)
+            meta = read_metadata(snapshot_dir, branch, checkpoint_id)
             if meta is None:
                 return
             if meta.engine != "mysql" or meta.database != str(params["dbname"]):
@@ -176,9 +201,11 @@ class MySQLDumpStrategy:
                 action="prune",
                 kind="file",
                 server=server_identity(conn, str(params["dbname"])),
-                target=str(snapshot_dump_path(snapshot_dir, branch).resolve()),
+                target=str(
+                    snapshot_dump_path(snapshot_dir, branch, checkpoint_id).resolve()
+                ),
                 names=lambda token: file_names(root, token),
-                metadata=metadata_path(snapshot_dir, branch),
+                metadata=metadata_path(snapshot_dir, branch, checkpoint_id),
                 build=None,
                 after=lambda _: None,
             )

@@ -12,6 +12,7 @@ from db_git.errors import ConfigError
 if TYPE_CHECKING:
     from db_git.config import DbGitConfig
     from db_git.state import BranchDbEntry
+    from db_git.storage import Checkpoint
 
 _BACKEND_REGISTRY: dict[str, type[DatabaseBackend]] = {}
 _BUILTIN_BACKENDS: dict[str, str] = {
@@ -61,6 +62,8 @@ class SnapshotStrategy(Protocol):
         branch: str,
         snapshot_dir: Path,
         config: DbGitConfig,
+        *,
+        checkpoint: Checkpoint | None = None,
     ) -> None: ...
 
     def restore(
@@ -69,6 +72,8 @@ class SnapshotStrategy(Protocol):
         branch: str,
         snapshot_dir: Path,
         config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
     ) -> None: ...
 
     def cleanup(
@@ -76,6 +81,8 @@ class SnapshotStrategy(Protocol):
         branch: str,
         snapshot_dir: Path,
         config: DbGitConfig,
+        *,
+        checkpoint_id: str | None = None,
     ) -> None: ...
 
 
