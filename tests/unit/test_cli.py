@@ -569,6 +569,16 @@ class TestPrune:
         try:
             mock_conn = MagicMock()
             mock_conn.execute.return_value.fetchall.return_value = []
+
+            def execute(query, params=None):
+                cursor = MagicMock()
+                cursor.fetchone.return_value = (
+                    (True,) if "pg_try_advisory_lock" in str(query) else None
+                )
+                cursor.fetchall.return_value = []
+                return cursor
+
+            mock_conn.execute.side_effect = execute
             with patch.object(
                 PostgresqlBackend, "connect_maintenance", return_value=mock_conn
             ):
@@ -719,7 +729,7 @@ class TestReset:
         finally:
             os.chdir(old_cwd)
 
-    def test_drops_and_recreates(self, git_repo, setup_config):
+    def test_uses_recoverable_reset(self, git_repo, setup_config):
         setup_config(git_repo, mode="per-branch")
         old_cwd = os.getcwd()
         os.chdir(git_repo)
@@ -727,14 +737,14 @@ class TestReset:
             with (
                 patch.object(PostgresBranchDbManager, "exists", return_value=True),
                 patch.object(PostgresBranchDbManager, "drop") as mock_drop,
-                patch.object(PostgresBranchDbManager, "create") as mock_create,
+                patch.object(PostgresBranchDbManager, "reset") as mock_reset,
             ):
                 result = runner.invoke(app, ["reset", "feature"])
 
             assert result.exit_code == 0
             assert "Reset" in result.output
-            mock_drop.assert_called_once()
-            mock_create.assert_called_once()
+            mock_drop.assert_not_called()
+            mock_reset.assert_called_once()
         finally:
             os.chdir(old_cwd)
 

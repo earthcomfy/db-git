@@ -2,23 +2,32 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psycopg
 from psycopg import sql
 
-from db_git.backends import DatabaseBackend
+from db_git.backends import DatabaseBackend, DbConnection
 from db_git.backends.postgresql.connections import handle_active_connections
+from db_git.backends.postgresql.operations import (
+    PostgresResources,
+    operation_scope,
+    resource_names,
+    server_identity,
+)
 from db_git.backends.postgresql.template import _create_from_template
 from db_git.db import parse_database_url
 from db_git.errors import SnapshotError, ToolNotFoundError
+from db_git.recovery import run_operation
 from db_git.state import (
     BranchDbEntry,
     get_branch_db,
     load_state,
-    record_branch_db,
-    remove_branch_db,
+    state_path,
+    state_text,
 )
 
 if TYPE_CHECKING:
@@ -26,10 +35,6 @@ if TYPE_CHECKING:
 
 
 class PostgresBranchDbManager:
-    """
-    Per-branch database operations for PostgreSQL.
-    """
-
     def __init__(self, backend: DatabaseBackend, config: DbGitConfig) -> None:
         self._backend = backend
         self._config = config
@@ -40,109 +45,117 @@ class PostgresBranchDbManager:
     def exists(self, name: str) -> bool:
         conn = self._backend.connect_maintenance(self._params)
         try:
-            cur = conn.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s",
-                (name,),
-            )
-            return cur.fetchone() is not None
+            return PostgresResources(conn, self._config).identity(name) is not None
         finally:
             conn.close()
 
     def create(
+        self, target: str, source: str, branch: str, created_from: str, git_dir: Path
+    ) -> None:
+        self._replace(target, source, branch, created_from, git_dir, reset=False)
+
+    def reset(
+        self, target: str, source: str, branch: str, created_from: str, git_dir: Path
+    ) -> None:
+        self._replace(target, source, branch, created_from, git_dir, reset=True)
+
+    def _replace(
         self,
         target: str,
         source: str,
         branch: str,
         created_from: str,
         git_dir: Path,
+        *,
+        reset: bool,
     ) -> None:
-        if target == source:
-            raise SnapshotError("Cannot clone a database onto itself")
-        strategy = self._backend.detect_strategy(self._config)
-
-        if strategy.name == "template":
-            _create_via_template(
-                self._backend, self._params, target, source, self._config
+        if target == source or target == self._params["dbname"]:
+            raise SnapshotError(
+                "Cannot clone a database onto itself or replace the seed"
             )
-        else:
-            _create_via_pgdump(
-                self._backend,
-                self._params,
-                self._backend.build_subprocess_env(self._params),
-                target,
-                source,
-                self._config,
-            )
+        root = git_dir / "db-git" / "operations"
+        try:
+            with operation_scope(self._backend, self._params, root) as conn:
+                resources = PostgresResources(conn, self._config)
+                if reset and resources.identity(target) is not None:
+                    self._require_owner(target, branch, git_dir)
+                strategy = self._backend.detect_strategy(self._config)
 
-        record_branch_db(git_dir, branch, target, created_from)
+                def build(stage: str) -> None:
+                    if strategy.name == "template":
+                        handle_active_connections(conn, source, self._config)
+                        _create_from_template(conn, stage, source)
+                    else:
+                        _create_via_pgdump(
+                            conn, self._backend, self._params, stage, source
+                        )
 
-    def drop(self, name: str, branch: str, git_dir: Path) -> None:
+                state = load_state(git_dir)
+                state.databases[branch] = BranchDbEntry(
+                    target, datetime.now(UTC).isoformat(), created_from
+                )
+                run_operation(
+                    root,
+                    resources,
+                    action="reset" if reset else "create",
+                    kind="database",
+                    server=server_identity(self._params),
+                    target=target,
+                    names=lambda identifier: resource_names(self._params, identifier),
+                    metadata=state_path(git_dir),
+                    build=build,
+                    after=lambda _: state_text(state),
+                    replace=reset,
+                )
+        except psycopg.Error as e:
+            raise SnapshotError(f"Branch database operation failed: {e}") from e
+
+    def _require_owner(self, name: str, branch: str, git_dir: Path) -> None:
         entry = get_branch_db(git_dir, branch)
         if entry is None or entry.db_name != name or name == self._params["dbname"]:
             raise SnapshotError(
                 f"Refusing to drop '{name}': it is not owned by branch '{branch}'"
             )
-        conn = self._backend.connect_maintenance(self._params)
-        try:
-            handle_active_connections(conn, name, self._config)
-            conn.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
-                    sql.Identifier(name)
-                )
-            )
-        finally:
-            conn.close()
 
-        remove_branch_db(git_dir, branch)
+    def drop(self, name: str, branch: str, git_dir: Path) -> None:
+        # Validate before connecting, then again while holding the operation lock.
+        self._require_owner(name, branch, git_dir)
+        root = git_dir / "db-git" / "operations"
+        with operation_scope(self._backend, self._params, root) as conn:
+            self._require_owner(name, branch, git_dir)
+            state = load_state(git_dir)
+            state.databases.pop(branch, None)
+            run_operation(
+                root,
+                PostgresResources(conn, self._config),
+                action="prune",
+                kind="database",
+                server=server_identity(self._params),
+                target=name,
+                names=lambda identifier: resource_names(self._params, identifier),
+                metadata=state_path(git_dir),
+                build=None,
+                after=lambda _: state_text(state),
+            )
 
     def list(self, git_dir: Path) -> list[tuple[str, BranchDbEntry, bool]]:
-        state = load_state(git_dir)
         return [
             (branch, entry, self.exists(entry.db_name))
-            for branch, entry in state.databases.items()
+            for branch, entry in load_state(git_dir).databases.items()
         ]
 
 
-def _create_via_template(
-    backend: DatabaseBackend,
-    params: dict[str, str | int],
-    target: str,
-    source: str,
-    config: DbGitConfig,
-) -> None:
-    """
-    Create a database using CREATE DATABASE ... TEMPLATE.
-    """
-    conn = backend.connect_maintenance(params)
-    try:
-        handle_active_connections(conn, source, config)
-        _create_from_template(conn, target, source)
-    except psycopg.Error as e:
-        raise SnapshotError(f"Template clone failed: {e}") from e
-    finally:
-        conn.close()
-
-
 def _create_via_pgdump(
+    conn: DbConnection,
     backend: DatabaseBackend,
     params: dict[str, str | int],
-    env: dict[str, str],
     target: str,
     source: str,
-    config: DbGitConfig,
 ) -> None:
-    """
-    Create a database by piping pg_dump to pg_restore.
-    """
-    pg_dump = shutil.which("pg_dump")
-    pg_restore = shutil.which("pg_restore")
-
-    if not pg_dump:
-        raise ToolNotFoundError("pg_dump not found in PATH.")
-    if not pg_restore:
-        raise ToolNotFoundError("pg_restore not found in PATH.")
-
-    common_args = [
+    pg_dump, pg_restore = shutil.which("pg_dump"), shutil.which("pg_restore")
+    if not pg_dump or not pg_restore:
+        raise ToolNotFoundError("pg_dump and pg_restore must be installed in PATH.")
+    common = [
         "-h",
         str(params["host"]),
         "-p",
@@ -150,56 +163,40 @@ def _create_via_pgdump(
         "-U",
         str(params["user"]),
     ]
-
-    conn = backend.connect_maintenance(params)
-    try:
-        target_ident = sql.Identifier(target)
-        conn.execute(
-            sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(target_ident)
+    env = backend.build_subprocess_env(params)
+    # An anonymous temporary file avoids pipe deadlocks and is removed on process exit.
+    with tempfile.TemporaryFile() as dump:
+        result = subprocess.run(
+            [pg_dump, "-Fc", "--no-owner", "--no-privileges", *common, source],
+            stdout=dump,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            timeout=300,
         )
-    except psycopg.Error as e:
-        raise SnapshotError(f"Create branch database failed: {e}") from e
-    finally:
-        conn.close()
-
-    dump_cmd = [
-        pg_dump,
-        "-Fc",
-        "--no-owner",
-        "--no-privileges",
-        *common_args,
-        source,
-    ]
-    restore_cmd = [
-        pg_restore,
-        "--no-owner",
-        "--no-privileges",
-        *common_args,
-        "-d",
-        target,
-    ]
-
-    dump_proc = subprocess.Popen(
-        dump_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-    )
-    restore_result = subprocess.run(
-        restore_cmd,
-        stdin=dump_proc.stdout,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=300,
-    )
-    if dump_proc.stdout is not None:
-        dump_proc.stdout.close()
-    dump_proc.wait(timeout=300)
-
-    if dump_proc.returncode != 0:
-        stderr = dump_proc.stderr.read().decode() if dump_proc.stderr else ""
-        raise SnapshotError(f"pg_dump failed: {stderr.strip()}")
-
-    if restore_result.returncode != 0:
-        raise SnapshotError(f"pg_restore failed: {restore_result.stderr.strip()}")
+        if result.returncode:
+            raise SnapshotError(f"pg_dump failed: {result.stderr.strip()}")
+        dump.seek(0)
+        conn.execute(
+            sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(
+                sql.Identifier(target)
+            )
+        )
+        result = subprocess.run(
+            [
+                pg_restore,
+                "--exit-on-error",
+                "--no-owner",
+                "--no-privileges",
+                *common,
+                "-d",
+                target,
+            ],
+            stdin=dump,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=300,
+        )
+        if result.returncode:
+            raise SnapshotError(f"pg_restore failed: {result.stderr.strip()}")

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from db_git.errors import SnapshotError
+from db_git.files import atomic_write, local_lock
 
 
 @dataclass
@@ -33,7 +34,7 @@ _STATE_DIR = "db-git"
 _STATE_FILE = "state.json"
 
 
-def _state_path(git_dir: Path) -> Path:
+def state_path(git_dir: Path) -> Path:
     return git_dir / _STATE_DIR / _STATE_FILE
 
 
@@ -41,7 +42,7 @@ def load_state(git_dir: Path) -> DbGitState:
     """
     Read state from .git/db-git/state.json.
     """
-    path = _state_path(git_dir)
+    path = state_path(git_dir)
     if not path.exists():
         return DbGitState()
     try:
@@ -53,23 +54,26 @@ def load_state(git_dir: Path) -> DbGitState:
             mode=data.get("mode", "per-branch"),
             databases=databases,
         )
-    except (json.JSONDecodeError, TypeError, KeyError):
-        return DbGitState()
+    except (json.JSONDecodeError, TypeError, KeyError, AttributeError) as e:
+        raise SnapshotError(f"Invalid state at {path}; preserve it for repair") from e
 
 
 def save_state(git_dir: Path, state: DbGitState) -> None:
     """
     Write state to .git/db-git/state.json.
     """
-    path = _state_path(git_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    with local_lock(git_dir / "db-git" / "operations"):
+        atomic_write(state_path(git_dir), state_text(state))
+
+
+def state_text(state: DbGitState) -> str:
     data = {
         "mode": state.mode,
         "databases": {
             branch: asdict(entry) for branch, entry in state.databases.items()
         },
     }
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    return json.dumps(data, indent=2) + "\n"
 
 
 def record_branch_db(
@@ -81,22 +85,24 @@ def record_branch_db(
     """
     Add or update a branch database entry in the state file.
     """
-    state = load_state(git_dir)
-    state.databases[branch] = BranchDbEntry(
-        db_name=db_name,
-        created_at=datetime.now(UTC).isoformat(),
-        created_from=created_from,
-    )
-    save_state(git_dir, state)
+    with local_lock(git_dir / "db-git" / "operations"):
+        state = load_state(git_dir)
+        state.databases[branch] = BranchDbEntry(
+            db_name=db_name,
+            created_at=datetime.now(UTC).isoformat(),
+            created_from=created_from,
+        )
+        save_state(git_dir, state)
 
 
 def remove_branch_db(git_dir: Path, branch: str) -> None:
     """
     Remove a branch database entry from the state file.
     """
-    state = load_state(git_dir)
-    state.databases.pop(branch, None)
-    save_state(git_dir, state)
+    with local_lock(git_dir / "db-git" / "operations"):
+        state = load_state(git_dir)
+        state.databases.pop(branch, None)
+        save_state(git_dir, state)
 
 
 def get_branch_db(git_dir: Path, branch: str) -> BranchDbEntry | None:

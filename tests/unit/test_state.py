@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from db_git.errors import SnapshotError
 from db_git.state import (
     BranchDbEntry,
     DbGitState,
@@ -71,12 +74,13 @@ class TestState:
     def test_get_branch_db_returns_none_for_missing(self, tmp_path):
         assert get_branch_db(tmp_path, "nonexistent") is None
 
-    def test_load_malformed_json_returns_empty(self, tmp_path):
+    def test_load_malformed_json_refuses_to_replace_state(self, tmp_path):
         state_dir = tmp_path / "db-git"
         state_dir.mkdir(parents=True)
         (state_dir / "state.json").write_text("not json")
-        state = load_state(tmp_path)
-        assert state.databases == {}
+        with pytest.raises(SnapshotError, match="preserve it for repair"):
+            load_state(tmp_path)
+        assert (state_dir / "state.json").read_text() == "not json"
 
     def test_state_file_is_valid_json(self, tmp_path):
         record_branch_db(tmp_path, "feat", "myapp__feat", "main")

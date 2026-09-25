@@ -9,6 +9,7 @@ from pathlib import Path
 
 from db_git import __version__
 from db_git.errors import SnapshotError
+from db_git.files import atomic_write
 from db_git.state import get_branch_db, load_state
 
 _DEFAULT_MAX_IDENTIFIER = 63
@@ -164,7 +165,7 @@ def write_metadata(snapshot_dir: Path, metadata: SnapshotMetadata) -> None:
     """
     ensure_snapshot_dir(snapshot_dir)
     path = metadata_path(snapshot_dir, metadata.branch)
-    path.write_text(json.dumps(asdict(metadata), indent=2) + "\n")
+    atomic_write(path, json.dumps(asdict(metadata), indent=2) + "\n")
 
 
 def read_metadata(snapshot_dir: Path, branch: str) -> SnapshotMetadata | None:

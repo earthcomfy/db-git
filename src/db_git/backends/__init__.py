@@ -84,6 +84,15 @@ class BranchDbManager(Protocol):
         git_dir: Path,
     ) -> None: ...
 
+    def reset(
+        self,
+        target: str,
+        source: str,
+        branch: str,
+        created_from: str,
+        git_dir: Path,
+    ) -> None: ...
+
     def drop(
         self,
         name: str,

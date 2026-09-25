@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import typer
 
-from db_git.config import load_config
+from db_git.config import find_project_root, load_config
 from db_git.errors import DbGitError
 from db_git.git import get_git_dir, handle_post_checkout, install_hook, remove_hook
+from db_git.recovery import require_recovered
 
 from ._console import app, console, hook_app
 
@@ -72,6 +73,17 @@ def enable() -> None:
     if git_dir is None:
         console.print("[red]Error:[/] Not inside a git repository.")
         raise typer.Exit(1)
+
+    try:
+        require_recovered(git_dir / "db-git" / "operations")
+        require_recovered(git_dir / "db-git" / "snapshots" / ".operations")
+        project = find_project_root()
+        if project is not None and (project / ".db-git.toml").exists():
+            config = load_config()
+            require_recovered(config.snapshot_dir / ".operations")
+    except DbGitError as e:
+        console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(1) from e
 
     disabled_file = git_dir / "db-git" / "disabled"
     if disabled_file.exists():

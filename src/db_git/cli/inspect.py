@@ -11,6 +11,7 @@ from db_git.config import DbGitConfig, load_config
 from db_git.db import parse_database_url, with_database_name
 from db_git.errors import DbGitError
 from db_git.git import get_current_branch, get_git_dir, list_branches
+from db_git.recovery import operations
 from db_git.state import load_state
 from db_git.storage import (
     branch_db_name,
@@ -175,6 +176,7 @@ def status(
         snapshots = list_snapshots(config.snapshot_dir)
         current_status = _shared_current_status(config, backend, current_branch)
         enabled_status = check_enabled()
+        recovery_count = len(operations(config.snapshot_dir / ".operations"))
         summary = (
             f"  Branch:     [cyan]{current_branch}[/]\n"
             f"  Database:   {mask_url(config.database_url)}\n"
@@ -182,7 +184,9 @@ def status(
             f"  Strategy:   [green]{detected.name}[/]\n"
             f"  Snapshots:  {len(snapshots)}\n"
             f"  Current:    {current_status}\n"
-            f"  Enabled:    {enabled_status}"
+            f"  Enabled:    {enabled_status}\n"
+            f"  Recovery:   {recovery_count} records "
+            "(db-git recover)"
         )
         console.print(Panel(summary, title="db-git status", border_style="blue"))
     except DbGitError as e:
@@ -389,6 +393,9 @@ def _status_per_branch(
         state = load_state(git_dir)
         total_dbs = len(state.databases)
 
+    recovery_count = (
+        len(operations(git_dir / "db-git" / "operations")) if git_dir else 0
+    )
     count_warning = ""
     if total_dbs > 20:
         count_warning = " [yellow](consider running db-git prune)[/]"
@@ -403,7 +410,8 @@ def _status_per_branch(
         f"  Engine:     [cyan]{backend.engine} {version}[/]\n"
         f"  Strategy:   [green]{detected.name}[/]\n"
         f"  Databases:  {total_dbs}{count_warning}\n"
-        f"  Enabled:    {enabled_status}"
+        f"  Enabled:    {enabled_status}\n"
+        f"  Recovery:   {recovery_count} records (db-git recover)"
     )
     console.print(Panel(summary, title="db-git status", border_style="blue"))
 

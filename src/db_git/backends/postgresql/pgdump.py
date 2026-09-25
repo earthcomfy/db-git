@@ -1,35 +1,58 @@
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import psycopg
 from psycopg import sql
 
 from db_git.backends import DatabaseBackend
-from db_git.backends.postgresql.connections import handle_active_connections
+from db_git.backends.postgresql.operations import (
+    PostgresResources,
+    operation_scope,
+    resource_names,
+    server_identity,
+)
 from db_git.db import parse_database_url
-from db_git.errors import DatabaseError, SnapshotError, ToolNotFoundError
+from db_git.errors import SnapshotError, ToolNotFoundError
+from db_git.recovery import run_operation
+from db_git.resources import FileResources
 from db_git.storage import (
-    ensure_snapshot_dir,
     has_snapshot,
     make_metadata,
     metadata_path,
     snapshot_dump_path,
-    write_metadata,
 )
 
 if TYPE_CHECKING:
     from db_git.config import DbGitConfig
 
 
-class PgDumpStrategy:
-    """
-    Snapshot strategy using pg_dump/pg_restore.
-    """
+def file_names(root: Path, identifier: str) -> tuple[str, str]:
+    return str((root / f"{identifier}.stage").resolve()), str(
+        (root / f"{identifier}.backup").resolve()
+    )
 
+
+def _restore_dump(
+    pg_restore: str, params: dict[str, str | int], dump: str, env: dict[str, str]
+) -> None:
+    result = subprocess.run(
+        _build_pg_restore_cmd(pg_restore, params, dump),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise SnapshotError(f"pg_restore failed: {result.stderr.strip()}")
+
+
+class PgDumpStrategy:
     name = "pgdump"
 
     def __init__(self, backend: DatabaseBackend, pg_version: int) -> None:
@@ -37,127 +60,121 @@ class PgDumpStrategy:
         self._pg_version = pg_version
 
     def save(
-        self,
-        db_url: str,
-        branch: str,
-        snapshot_dir: Path,
-        config: DbGitConfig,
+        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
     ) -> None:
         pg_dump = shutil.which("pg_dump")
         if not pg_dump:
             raise ToolNotFoundError(
                 "pg_dump not found in PATH. Install PostgreSQL client tools."
             )
-
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
-        env = self._backend.build_subprocess_env(params)
+        root = snapshot_dir / ".operations"
+        with operation_scope(self._backend, params, root):
+            dump = snapshot_dump_path(snapshot_dir, branch)
+            if dump.exists() and not has_snapshot(snapshot_dir, branch):
+                raise SnapshotError(f"Refusing to replace untracked dump file {dump}")
 
-        ensure_snapshot_dir(snapshot_dir)
-        dump_file = snapshot_dump_path(snapshot_dir, branch)
-        if dump_file.exists() and not has_snapshot(snapshot_dir, branch):
-            raise SnapshotError(
-                f"Refusing to replace untracked dump file '{dump_file}'"
+            def build(stage: str) -> None:
+                result = subprocess.run(
+                    _build_pg_dump_cmd(pg_dump, params, stage, self._pg_version),
+                    capture_output=True,
+                    text=True,
+                    env=self._backend.build_subprocess_env(params),
+                    timeout=300,
+                )
+                if result.returncode != 0:
+                    raise SnapshotError(f"pg_dump failed: {result.stderr.strip()}")
+                with open(stage, "rb") as stream:
+                    os.fsync(stream.fileno())
+
+            def after(stage: str) -> str:
+                meta = make_metadata(
+                    branch,
+                    str(params["dbname"]),
+                    self.name,
+                    self._backend.engine,
+                    str(self._pg_version),
+                    Path(stage).stat().st_size,
+                )
+                return json.dumps(asdict(meta), indent=2) + "\n"
+
+            run_operation(
+                root,
+                FileResources(),
+                action="save",
+                kind="file",
+                server=server_identity(params),
+                target=str(dump.resolve()),
+                names=lambda identifier: file_names(root, identifier),
+                metadata=metadata_path(snapshot_dir, branch),
+                build=build,
+                after=after,
             )
 
-        cmd = _build_pg_dump_cmd(
-            pg_dump,
-            params,
-            str(dump_file),
-            self._pg_version,
-        )
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            raise SnapshotError(f"pg_dump failed: {result.stderr.strip()}")
-
-        write_metadata(
-            snapshot_dir,
-            make_metadata(
-                branch=branch,
-                database=str(params["dbname"]),
-                strategy=self.name,
-                engine=self._backend.engine,
-                engine_version=str(self._pg_version),
-                file_size_bytes=dump_file.stat().st_size,
-            ),
-        )
-
     def restore(
-        self,
-        db_url: str,
-        branch: str,
-        snapshot_dir: Path,
-        config: DbGitConfig,
+        self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
     ) -> None:
         pg_restore = shutil.which("pg_restore")
         if not pg_restore:
             raise ToolNotFoundError(
                 "pg_restore not found in PATH. Install PostgreSQL client tools."
             )
-
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
-        env = self._backend.build_subprocess_env(params)
-        dump_file = snapshot_dump_path(snapshot_dir, branch)
+        root = snapshot_dir / ".operations"
+        with operation_scope(self._backend, params, root) as conn:
+            dump = snapshot_dump_path(snapshot_dir, branch)
+            if not dump.exists():
+                raise SnapshotError(
+                    f"No dump file found for branch '{branch}' at {dump}"
+                )
 
-        if not dump_file.exists():
-            raise SnapshotError(
-                f"No dump file found for branch '{branch}' at {dump_file}"
+            def build(stage: str) -> None:
+                conn.execute(
+                    sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(
+                        sql.Identifier(stage)
+                    )
+                )
+                _restore_dump(
+                    pg_restore,
+                    {**params, "dbname": stage},
+                    str(dump),
+                    self._backend.build_subprocess_env(params),
+                )
+
+            run_operation(
+                root,
+                PostgresResources(conn, config),
+                action="restore",
+                kind="database",
+                server=server_identity(params),
+                target=str(params["dbname"]),
+                names=lambda identifier: resource_names(params, identifier),
+                metadata=None,
+                build=build,
+                after=lambda _: None,
             )
 
-        self._drop_and_create_db(params, config)
-
-        cmd = _build_pg_restore_cmd(pg_restore, params, str(dump_file))
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=300,
+    def cleanup(self, branch: str, snapshot_dir: Path, config: DbGitConfig) -> None:
+        params = self._backend.apply_url_defaults(
+            parse_database_url(config.database_url)
         )
-        if result.returncode != 0:
-            raise SnapshotError(f"pg_restore failed: {result.stderr.strip()}")
-
-    def cleanup(
-        self,
-        branch: str,
-        snapshot_dir: Path,
-        config: DbGitConfig,
-    ) -> None:
-        dump = snapshot_dump_path(snapshot_dir, branch)
-        meta = metadata_path(snapshot_dir, branch)
-        if dump.exists():
-            dump.unlink()
-        if meta.exists():
-            meta.unlink()
-
-    def _drop_and_create_db(
-        self,
-        params: dict[str, str | int],
-        config: DbGitConfig,
-    ) -> None:
-        """
-        Drop and recreate the target database via the maintenance connection.
-        """
-        dbname = str(params["dbname"])
-        conn = self._backend.connect_maintenance(params)
-        try:
-            handle_active_connections(conn, dbname, config)
-            db_ident = sql.Identifier(dbname)
-            conn.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(db_ident)
+        root = snapshot_dir / ".operations"
+        with operation_scope(self._backend, params, root):
+            if not has_snapshot(snapshot_dir, branch):
+                return
+            dump = snapshot_dump_path(snapshot_dir, branch)
+            run_operation(
+                root,
+                FileResources(),
+                action="prune",
+                kind="file",
+                server=server_identity(params),
+                target=str(dump.resolve()),
+                names=lambda identifier: file_names(root, identifier),
+                metadata=metadata_path(snapshot_dir, branch),
+                build=None,
+                after=lambda _: None,
             )
-            conn.execute(
-                sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(db_ident)
-            )
-        except (psycopg.Error, DatabaseError) as e:
-            raise SnapshotError(f"Drop/create database failed: {e}") from e
-        finally:
-            conn.close()
 
 
 def _build_pg_dump_cmd(
@@ -203,6 +220,7 @@ def _build_pg_restore_cmd(
     """
     return [
         pg_restore,
+        "--exit-on-error",
         "--no-owner",
         "--no-privileges",
         "-h",

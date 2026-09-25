@@ -108,7 +108,7 @@ def reset(
     ] = None,
 ) -> None:
     """
-    Drop and recreate a branch database from seed (per-branch mode only).
+    Replace a branch database from seed, retaining a recovery copy.
     """
     require_init()
     try:
@@ -151,10 +151,7 @@ def reset(
             )
             raise typer.Exit(1)
 
-        if manager.exists(target_db):
-            manager.drop(target_db, branch, git_dir)
-
-        manager.create(target_db, seed_db, branch, config.default_branch, git_dir)
+        manager.reset(target_db, seed_db, branch, config.default_branch, git_dir)
         console.print(f"[green]Reset[/] database '{target_db}' from seed '{seed_db}'")
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")

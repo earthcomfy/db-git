@@ -24,8 +24,9 @@ local database aligned with the branch you are working on.
 - Two PostgreSQL snapshot strategies:
   - `template`: fast database clones using `CREATE DATABASE ... TEMPLATE`
   - `pgdump`: portable snapshots using `pg_dump` and `pg_restore`
-- Manual `save`, `restore`, `create`, `reset`, `list`, `status`, and `prune`
+- Manual `save`, `restore`, `create`, `reset`, `list`, `status`, `prune`, and `recover`
   commands
+- Staged replacements, retained recovery copies, and interrupted-operation recovery
 - Safe hook behavior: checkout is never blocked by db-git failures
 - Rich terminal output and local state stored under `.git/db-git/`
 
@@ -183,7 +184,7 @@ Create a branch database before checking out the branch:
 db-git create feature/auth
 ```
 
-Drop and recreate a branch database from the seed database:
+Build a replacement from the seed database, retaining the previous database for recovery:
 
 ```bash
 db-git reset feature/auth
@@ -200,11 +201,16 @@ Preview stale snapshots or branch databases:
 db-git prune --dry-run
 ```
 
-Remove stale snapshots or branch databases:
+Remove stale snapshots or branch databases from active use:
 
 ```bash
 db-git prune --yes
 ```
+
+Pruned data is retained as a recovery copy. To permanently free its storage, use
+`db-git recover` to identify the prune operation, then
+`db-git recover <operation-id> --discard`.
+
 
 ### Hook Management
 
@@ -295,23 +301,65 @@ on that ambiguous ownership. Back up that database and reconcile its state
 records before proceeding; changing names cannot recover data previously lost
 to a collision.
 
+### Recoverable operations
+
+Saves, restores, branch creation, resets, and pruning use a durable operation
+journal. Replacements are fully built before publication. Database replacements
+are switched with transactional renames; dump files and JSON metadata use staged
+writes. The previous copy is retained. Ordinary failures attempt automatic
+rollback; interrupted operations block further mutations until resolved.
+
+Inspect recovery records (newest first):
+
+```bash
+db-git recover
+```
+
+Use an operation ID from that output:
+
+```bash
+# Restore the previous database/snapshot and metadata.
+# The replaced data remains available as the staged recovery copy.
+db-git recover <operation-id> --rollback
+
+# Finish publishing a replacement that was fully built before interruption.
+db-git recover <operation-id> --finish
+
+# Permanently remove retained backups/staging data for a resolved operation.
+# The active target is kept.
+db-git recover <operation-id> --discard
+```
+
+Recovery actions ask for confirmation; add `--yes` for scripts. `--finish` is
+available only after the replacement reached the ready stage. An interrupted
+rollback must be resumed with `--rollback`; interrupted disposal with `--discard`.
+If later work changed a resource or its metadata, recovery refuses to overwrite it.
+
+`db-git status` shows how many recovery records are retained. Backups consume
+local disk space or databases on the same PostgreSQL server until explicitly
+discarded; pruning alone does not free that retained storage. Keep the journals
+until their recovery resources have been resolved and discarded.
+
+Concurrent db-git writers are rejected with a retry message. Process locks protect
+local state, and PostgreSQL advisory locks protect operations on the same configured
+base database, including operations from another repository. These locks coordinate
+db-git processes; active application connections follow `on_active_connections`.
+
 ### Recover after a failed branch switch
 
-Git checkout still completes when database handling fails. In shared mode, a
-failed save prevents the destination snapshot from being restored. A failed
-save or restore also disables automatic database switching, preventing later
-checkouts from saving the wrong database under another branch's name.
+Git checkout still completes when database handling fails. Shared-mode switching
+is disabled during the save/restore sequence and re-enabled only after success.
+This also protects the gap between save and restore if the process exits abruptly.
 
-If saving failed, fix the reported error and save the working database explicitly
-under the branch you left, for example `db-git save main`. Then restore the
-intended branch snapshot with `db-git restore feature/auth`. If that branch has
-no snapshot, explicitly choose which saved database state it should start from.
-Run `db-git enable` once the working database matches the intended branch.
+Start with `db-git recover`. Finish or roll back any interrupted operation before
+running another mutation. Once recovery is resolved, align the working database
+with the branch Git checked out. If saving failed, preserve the working data under
+the branch you left, for example `db-git save main`, before restoring the intended
+branch snapshot with `db-git restore feature/auth`. If that branch has no snapshot,
+explicitly choose the saved state it should start from.
 
-If restoring failed, the working database may be incomplete. Do not save it over
-a known-good snapshot. Fix the error, restore a known-good snapshot, and then
-run `db-git enable`. Restores do not yet provide automatic rollback; staged
-replacement and recovery are the next safety milestone.
+Run `db-git enable` once the database matches the intended branch. It refuses to
+re-enable automatic switching while an interrupted operation remains unresolved.
 
 ### Active connections block an operation
 

@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 
 from db_git.backends import DatabaseBackend, get_backend
+from db_git.backends.postgresql.operations import operation_scope
 from db_git.db import parse_database_url
 from db_git.errors import HookError
+from db_git.files import atomic_write, durable_unlink
 from db_git.hook_script import HOOK_IDENTIFIER, render_hook_script
 from db_git.state import get_branch_db
 from db_git.storage import branch_db_name, has_snapshot
@@ -204,18 +206,29 @@ def handle_post_checkout(
 
         backend = get_backend(config.database_url)
 
-        if prev_branch and not _try_save(backend, config, prev_branch):
-            _disable_after_failed_switch(git_dir, save_failed=True)
-            return
+        params = backend.apply_url_defaults(parse_database_url(config.database_url))
+        with operation_scope(backend, params, config.snapshot_dir / ".operations"):
+            disabled = git_dir / "db-git" / "disabled"
+            atomic_write(
+                disabled,
+                f"Database switch from {prev_branch!r} to {curr_branch!r} "
+                "did not finish. Inspect db-git recover, align the working database "
+                "with the checked-out branch, then run db-git enable.\n",
+            )
+            if prev_branch and not _try_save(backend, config, prev_branch):
+                _disable_after_failed_switch(git_dir, save_failed=True)
+                return
 
-        if curr_branch:
-            if has_snapshot(config.snapshot_dir, curr_branch):
-                if not _try_restore(backend, config, curr_branch):
-                    _disable_after_failed_switch(git_dir)
-            else:
-                console.print(
-                    f"[dim]No snapshot for '{curr_branch}': database unchanged[/]"
-                )
+            if curr_branch:
+                if has_snapshot(config.snapshot_dir, curr_branch):
+                    if not _try_restore(backend, config, curr_branch):
+                        _disable_after_failed_switch(git_dir)
+                        return
+                else:
+                    console.print(
+                        f"[dim]No snapshot for '{curr_branch}': database unchanged[/]"
+                    )
+            durable_unlink(disabled)
     except Exception as e:
         console.print(f"[yellow]db-git warning:[/] {e}")
         if git_dir is not None and config.mode == "shared":
@@ -225,7 +238,10 @@ def handle_post_checkout(
 def _disable_after_failed_switch(git_dir: Path, *, save_failed: bool = False) -> None:
     disabled = git_dir / "db-git" / "disabled"
     disabled.parent.mkdir(parents=True, exist_ok=True)
-    disabled.touch()
+    if not disabled.exists():
+        atomic_write(
+            disabled, "Automatic switching disabled after a failed checkout.\n"
+        )
     console.print(
         "[yellow]Automatic database switching disabled after a failed switch.[/]"
     )
