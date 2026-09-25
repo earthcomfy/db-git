@@ -20,6 +20,7 @@ from db_git.config import (
 from db_git.db import parse_database_url
 from db_git.errors import DatabaseError, DbGitError
 from db_git.git import get_git_dir, install_hook
+from db_git.repository import configuration_root, require_safe_shared_mode
 from db_git.storage import ensure_snapshot_dir
 
 from ._common import debug_enabled
@@ -76,6 +77,7 @@ def init(
             console.print("[red]Error:[/] Could not find project root.")
             raise typer.Exit(1)
 
+        project_root = configuration_root(project_root)
         existing_config = load_dotfile_config(project_root)
         is_reinit = (project_root / ".db-git.toml").exists()
         if is_reinit:
@@ -153,9 +155,11 @@ def init(
             default="1",
         )
 
+        require_safe_shared_mode(resolved_mode)
+
         resolved_default_branch = existing_config.get("default_branch", "")
         if resolved_mode == "per-branch" and not resolved_default_branch:
-            resolved_default_branch = detect_default_branch()
+            resolved_default_branch = detect_default_branch(project_root)
 
         strategy_labels = {
             "1": "template: fast, uses CREATE DATABASE ... TEMPLATE",
@@ -228,7 +232,9 @@ def init(
             config_updates["default_branch"] = resolved_default_branch
 
         write_config(project_root, config_updates)
-        console.print("[dim]Configuration saved to .db-git.toml[/]\n")
+        console.print(
+            f"[dim]Configuration saved to {project_root / '.db-git.toml'}[/]\n"
+        )
         if ensure_config_ignored(project_root):
             console.print("[dim]Added .db-git.toml to .gitignore[/]\n")
 

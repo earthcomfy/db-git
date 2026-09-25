@@ -7,6 +7,7 @@ from pathlib import Path
 
 from db_git.errors import SnapshotError
 from db_git.files import atomic_write, local_lock
+from db_git.repository import operations_directory, shared_state_directory
 
 
 @dataclass
@@ -23,24 +24,23 @@ class BranchDbEntry:
 @dataclass
 class DbGitState:
     """
-    Persistent state tracked in .git/db-git/state.json.
+    Branch ownership shared in the common Git directory under db-git/state.json.
     """
 
     mode: str = "per-branch"
     databases: dict[str, BranchDbEntry] = field(default_factory=dict)
 
 
-_STATE_DIR = "db-git"
 _STATE_FILE = "state.json"
 
 
 def state_path(git_dir: Path) -> Path:
-    return git_dir / _STATE_DIR / _STATE_FILE
+    return shared_state_directory(git_dir) / _STATE_FILE
 
 
 def load_state(git_dir: Path) -> DbGitState:
     """
-    Read state from .git/db-git/state.json.
+    Read repository-wide branch ownership from the common Git directory.
     """
     path = state_path(git_dir)
     if not path.exists():
@@ -60,9 +60,9 @@ def load_state(git_dir: Path) -> DbGitState:
 
 def save_state(git_dir: Path, state: DbGitState) -> None:
     """
-    Write state to .git/db-git/state.json.
+    Write repository-wide branch ownership under the common operation lock.
     """
-    with local_lock(git_dir / "db-git" / "operations"):
+    with local_lock(operations_directory(git_dir)):
         atomic_write(state_path(git_dir), state_text(state))
 
 
@@ -85,7 +85,7 @@ def record_branch_db(
     """
     Add or update a branch database entry in the state file.
     """
-    with local_lock(git_dir / "db-git" / "operations"):
+    with local_lock(operations_directory(git_dir)):
         state = load_state(git_dir)
         state.databases[branch] = BranchDbEntry(
             db_name=db_name,
@@ -99,7 +99,7 @@ def remove_branch_db(git_dir: Path, branch: str) -> None:
     """
     Remove a branch database entry from the state file.
     """
-    with local_lock(git_dir / "db-git" / "operations"):
+    with local_lock(operations_directory(git_dir)):
         state = load_state(git_dir)
         state.databases.pop(branch, None)
         save_state(git_dir, state)

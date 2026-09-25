@@ -6,7 +6,9 @@ from pathlib import Path
 import typer
 
 from db_git.config import find_project_root
+from db_git.errors import DbGitError
 from db_git.git import get_git_dir
+from db_git.repository import configuration_root
 
 from ._console import console
 
@@ -23,9 +25,15 @@ def check_enabled() -> str:
 
 def require_init() -> Path:
     """
-    Ensure db-git has been initialized. Returns project root.
+    Ensure db-git is initialized; return the shared configuration root.
     """
     root = find_project_root()
+    try:
+        if root is not None:
+            root = configuration_root(root)
+    except DbGitError as e:
+        console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(1) from e
     if root is None or not (root / ".db-git.toml").exists():
         console.print(
             "[red]Error:[/] db-git is not initialized. Run [cyan]db-git init[/] first."

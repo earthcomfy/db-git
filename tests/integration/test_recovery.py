@@ -177,10 +177,14 @@ def test_failed_dump_save_keeps_previous_snapshot(backend, make_config, monkeypa
     strategy.save(config.database_url, "main", config.snapshot_dir, config)
     dump = snapshot_dump_path(config.snapshot_dir, "main")
     before = dump.read_bytes()
+    run = subprocess.run
 
     def fail(args, **kwargs):
         from pathlib import Path
 
+        # Inject a dump failure without intercepting Git's worktree safety checks.
+        if Path(args[0]).name != "pg_dump":
+            return run(args, **kwargs)
         Path(args[args.index("-f") + 1]).write_bytes(b"partial archive")
         return subprocess.CompletedProcess(args, 1, "", "disk full")
 

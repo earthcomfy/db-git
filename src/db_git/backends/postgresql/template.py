@@ -19,6 +19,7 @@ from db_git.backends.postgresql.operations import (
 from db_git.db import parse_database_url
 from db_git.errors import SnapshotError
 from db_git.recovery import run_operation
+from db_git.repository import require_safe_shared_mode
 from db_git.storage import make_metadata, metadata_path, read_metadata, snapshot_db_name
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ class TemplateStrategy:
     def save(
         self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
     ) -> None:
+        require_safe_shared_mode(config.mode)
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
         root = snapshot_dir / ".operations"
         try:
@@ -78,6 +80,7 @@ class TemplateStrategy:
     def restore(
         self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
     ) -> None:
+        require_safe_shared_mode(config.mode)
         params = self._backend.apply_url_defaults(parse_database_url(db_url))
         root = snapshot_dir / ".operations"
         try:
@@ -109,6 +112,7 @@ class TemplateStrategy:
             raise SnapshotError(f"Template restore failed: {e}") from e
 
     def cleanup(self, branch: str, snapshot_dir: Path, config: DbGitConfig) -> None:
+        require_safe_shared_mode(config.mode)
         params = self._backend.apply_url_defaults(
             parse_database_url(config.database_url)
         )

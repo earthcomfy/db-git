@@ -16,6 +16,7 @@ from db_git.db import parse_database_url
 from db_git.errors import DbGitError
 from db_git.git import get_git_dir
 from db_git.recovery import discard, finish, operations, rollback
+from db_git.repository import operations_directory
 from db_git.resources import FileResources
 
 from ._common import require_init
@@ -60,7 +61,7 @@ def recover(
         root = (
             (config.snapshot_dir / ".operations")
             if config.mode == "shared"
-            else (git_dir / "db-git" / "operations")
+            else (operations_directory(git_dir))
         )
         actions = sum((finish_operation, rollback_operation, discard_operation))
         if operation is None:

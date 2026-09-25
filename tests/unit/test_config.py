@@ -207,8 +207,8 @@ class TestConfig:
         assert (tmp_path / ".gitignore").read_text().count(".db-git.toml") == 1
 
 
-def test_relative_snapshot_directory_is_anchored_at_project_root(tmp_path, monkeypatch):
-    (tmp_path / ".git").mkdir()
+def test_relative_snapshot_directory_is_anchored_at_project_root(git_repo, monkeypatch):
+    tmp_path = git_repo
     write_config(
         tmp_path,
         {

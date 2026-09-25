@@ -30,7 +30,8 @@ local database aligned with the branch you are working on.
 - Read-only `doctor` diagnostics with actionable text and JSON reports
 - Staged replacements, retained recovery copies, and interrupted-operation recovery
 - Safe hook behavior: checkout is never blocked by db-git failures
-- Rich terminal output and local state stored under `.git/db-git/`
+- Git worktrees in per-branch mode, with shared ownership and recovery records
+- Rich terminal output and local state stored in Git’s common directory
 
 ## Quick Start
 
@@ -89,6 +90,71 @@ psql "$(db-git url)"
 
 Your configured seed URL stays separate from the application's `DATABASE_URL`,
 so subsequent db-git commands keep targeting the correct seed.
+
+## Git Worktrees
+
+Use **per-branch mode** to work on several branches at once:
+
+```bash
+# Initialize once in your primary checkout.
+db-git init --database-url postgresql://localhost/myapp --mode per-branch
+
+git worktree add ../myapp-feature -b feature/auth
+cd ../myapp-feature
+db-git run -- npm run dev
+```
+
+With the hook installed, `git worktree add` creates the new branch's database from
+seed if it does not already exist. An existing recorded branch database is reused.
+The primary checkout and linked worktree can run applications simultaneously with
+separate databases. Databases belong to **branches**, so forcing the same branch
+into two worktrees does not give it two databases. PostgreSQL's existing connection
+policy still applies to cloning and reset operations; template cloning may need to
+stop connections to its source. Use `on_active_connections = "fail"` to refuse
+those operations instead of terminating sessions.
+
+To start from another branch's data, create the database before adding its worktree:
+
+```bash
+db-git create feature/review --from feature/auth
+git worktree add ../myapp-review -b feature/review
+```
+
+All worktrees use the primary checkout's `.db-git.toml`. `init` from a linked
+worktree also updates that shared file. Relative `snapshot_dir` settings resolve
+against the primary checkout, even from nested directories in another worktree.
+A conflicting `.db-git.toml` in a linked checkout is rejected; reconcile it with
+the primary file before continuing. Environment and CLI overrides retain their
+normal precedence. Keep the primary checkout available while using linked ones.
+
+| Resource | Scope |
+| --- | --- |
+| Configuration | Primary checkout's `.db-git.toml` |
+| Branch ownership | Common Git directory: `db-git/state.json` |
+| Branch operation journals and lock | Common Git directory: `db-git/operations/` |
+| Default snapshot directory | Common Git directory: `db-git/snapshots/` |
+| Disable marker and checkout/rebase state | Current worktree's Git directory |
+
+`list`, `create --from`, and `recover` see the same ownership and recovery records
+from every checkout. An interrupted operation blocks mutations and `run` across
+worktrees until recovered. `disable` and `enable` affect only the current worktree.
+Older versions' worktree-local ownership or recovery files are detected and
+preserved; reconcile those records with the common state before proceeding.
+Existing database names are never automatically changed.
+
+Hook installation and removal respect `core.hooksPath`, preserve an existing hook
+as an adjacent `.legacy` file, and restore it on removal. Legacy hooks still run
+when db-git is disabled. With Git's default hooks directory, one installation
+serves every worktree. An absolute `core.hooksPath` is also shared. A **relative**
+`core.hooksPath` resolves within each checkout, so run `db-git hook install` in
+each worktree; if its initial checkout had no hook, run `db-git create` there too.
+Removing a shared hook affects every worktree that uses it.
+
+Shared mode cannot safely represent several checked-out branches in one working
+database. With multiple worktrees, db-git refuses shared-mode snapshot changes,
+automatic switching, `run`, and `enable`; `doctor` reports the conflict. Existing
+snapshots and recovery records remain available. Use per-branch mode or remove
+extra worktrees before resuming shared mode.
 
 ## Choosing a Mode
 
@@ -282,7 +348,7 @@ Remove the checkout hook:
 db-git hook remove
 ```
 
-Temporarily disable db-git without removing the hook:
+Temporarily disable db-git in the current worktree without removing the hook:
 
 ```bash
 db-git disable
@@ -350,7 +416,7 @@ Supported configuration keys:
 | `default_branch` | Seed branch for per-branch mode | `main` |
 | `strategy` | `template` or `pgdump` | required |
 | `on_active_connections` | `terminate` or `fail` | `terminate` |
-| `snapshot_dir` | Shared-mode snapshot metadata/dump directory | `.git/db-git/snapshots` |
+| `snapshot_dir` | Shared-mode snapshot metadata/dump directory | `db-git/snapshots` under Git’s common directory |
 | `max_snapshots` | Snapshot count kept by prune logic | `20` |
 | `force_terminate_timeout_ms` | Active connection termination timeout | `5000` |
 
@@ -421,13 +487,14 @@ put credentials in a protected libpq service file and reference `?service=NAME`.
 Inline credentials in these combinations are rejected for client operations,
 because a service password takes precedence over `PGPASSWORD`.
 
-Relative `snapshot_dir` paths resolve from the repository root, including when
+Relative `snapshot_dir` paths resolve from the primary checkout root, including when
 commands run in a subdirectory. Malformed TOML is an error, and snapshot limits
 and termination timeouts must be positive.
 
 ### Existing databases and snapshots
 
-Existing branch databases keep the names recorded in `.git/db-git/state.json`.
+Existing branch databases keep the names recorded in `db-git/state.json` under
+Git’s common directory (`.git/db-git/state.json` in an ordinary checkout).
 Existing snapshots keep their names when their metadata identifies the exact
 branch. No automatic database rename or snapshot migration is required. Use
 `db-git url` instead of constructing database names in application scripts.

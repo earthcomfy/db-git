@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -33,7 +34,9 @@ def setup_config() -> Callable[..., None]:
         mode: str = "shared",
         strategy: str = "template",
     ) -> None:
-        (path / ".git").mkdir(exist_ok=True)
+        subprocess.run(
+            ["git", "init", "-b", "main"], cwd=path, check=True, capture_output=True
+        )
         (path / ".db-git.toml").write_text(
             'database_url = "postgresql://postgres:postgres@localhost:5432/testdb"\n'
             f'strategy = "{strategy}"\n'

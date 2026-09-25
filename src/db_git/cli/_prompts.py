@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import typer
-
-from db_git.git import get_current_branch
 
 from ._console import console
 
@@ -103,19 +102,26 @@ def confirm_prune(
     return typer.confirm("This is irreversible. Continue?", default=False)
 
 
-def detect_default_branch() -> str:
+def detect_default_branch(root: Path | None = None) -> str:
     """
     Detect the default branch name from git.
     """
     result = subprocess.run(
         ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+        cwd=root,
         capture_output=True,
         text=True,
         timeout=10,
     )
     if result.returncode == 0:
         ref = result.stdout.strip()
-        return ref.split("/")[-1]
+        return ref.removeprefix("refs/remotes/origin/")
 
-    current = get_current_branch()
-    return current or "main"
+    result = subprocess.run(
+        ["git", "symbolic-ref", "--short", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "main"

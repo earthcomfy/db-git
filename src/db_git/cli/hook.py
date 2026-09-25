@@ -6,6 +6,12 @@ from db_git.config import find_project_root, load_config
 from db_git.errors import DbGitError
 from db_git.git import get_git_dir, handle_post_checkout, install_hook, remove_hook
 from db_git.recovery import require_recovered
+from db_git.repository import (
+    common_git_directory,
+    configuration_root,
+    operations_directory,
+    require_safe_shared_mode,
+)
 
 from ._console import app, console, hook_app
 
@@ -49,7 +55,7 @@ def hook_remove() -> None:
 @app.command()
 def disable() -> None:
     """
-    Temporarily disable db-git. Hook will skip all operations.
+    Temporarily disable automatic db-git operations in this worktree.
     """
     git_dir = get_git_dir()
     if git_dir is None:
@@ -67,7 +73,7 @@ def disable() -> None:
 @app.command()
 def enable() -> None:
     """
-    Re-enable db-git after it was disabled.
+    Re-enable automatic db-git operations in this worktree.
     """
     git_dir = get_git_dir()
     if git_dir is None:
@@ -75,11 +81,17 @@ def enable() -> None:
         raise typer.Exit(1)
 
     try:
-        require_recovered(git_dir / "db-git" / "operations")
-        require_recovered(git_dir / "db-git" / "snapshots" / ".operations")
+        require_recovered(operations_directory(git_dir))
+        require_recovered(
+            common_git_directory(git_dir) / "db-git" / "snapshots" / ".operations"
+        )
         project = find_project_root()
-        if project is not None and (project / ".db-git.toml").exists():
+        if (
+            project is not None
+            and (configuration_root(project) / ".db-git.toml").exists()
+        ):
             config = load_config()
+            require_safe_shared_mode(config.mode)
             require_recovered(config.snapshot_dir / ".operations")
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")

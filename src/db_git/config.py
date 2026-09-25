@@ -8,6 +8,12 @@ from pathlib import Path
 import tomlkit
 
 from db_git.errors import ConfigError
+from db_git.repository import (
+    common_git_directory,
+    configuration_root,
+    git_directory,
+    worktree_root,
+)
 
 VALID_CONNECTION_POLICIES = {"terminate", "fail"}
 VALID_MODES = {"shared", "per-branch"}
@@ -69,7 +75,8 @@ def load_config(
     DATABASE_URL supplies the seed URL only when the file omits database_url.
     DB_GIT_DATABASE_URL and explicit CLI values can override that seed.
     """
-    root = project_root or find_project_root()
+    project = project_root or find_project_root()
+    root = configuration_root(project) if project else None
     merged: dict[str, object] = {}
 
     # Read project settings before applying explicit overrides.
@@ -90,6 +97,10 @@ def load_config(
                 merged[key] = value
 
     config = _build_config(merged)
+    if root and "snapshot_dir" not in merged:
+        git_dir = git_directory(root)
+        if git_dir:
+            config.snapshot_dir = common_git_directory(git_dir) / "db-git" / "snapshots"
     if root and not config.snapshot_dir.is_absolute():
         config.snapshot_dir = root / config.snapshot_dir
     _validate_config(config)
@@ -97,14 +108,8 @@ def load_config(
 
 
 def find_project_root() -> Path | None:
-    """
-    Find the nearest ancestor containing a .git entry (directory or file).
-    """
-    current = Path.cwd()
-    for parent in [current, *current.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return None
+    """Resolve the current checkout root through Git (including linked worktrees)."""
+    return worktree_root()
 
 
 def load_dotfile_config(root: Path) -> dict[str, object]:
@@ -113,7 +118,7 @@ def load_dotfile_config(root: Path) -> dict[str, object]:
 
     Returns {} if absent; refuses malformed or unreadable configuration.
     """
-    dotfile = root / ".db-git.toml"
+    dotfile = configuration_root(root) / ".db-git.toml"
     if not dotfile.exists():
         return {}
     try:
@@ -229,7 +234,7 @@ def write_config(project_root: Path, updates: dict[str, object]) -> None:
     """
     Write or update .db-git.toml with the given key-value pairs.
     """
-    dotfile = project_root / ".db-git.toml"
+    dotfile = configuration_root(project_root) / ".db-git.toml"
 
     doc = tomlkit.parse(dotfile.read_text()) if dotfile.exists() else tomlkit.document()
 
@@ -245,7 +250,7 @@ def ensure_config_ignored(project_root: Path) -> bool:
     """
     Ensure the local db-git config file is ignored by git.
     """
-    gitignore = project_root / ".gitignore"
+    gitignore = configuration_root(project_root) / ".gitignore"
     entry = ".db-git.toml"
 
     if gitignore.exists():

@@ -22,6 +22,13 @@ from db_git.errors import DbGitError
 from db_git.git import get_git_dir
 from db_git.hook_script import HOOK_IDENTIFIER
 from db_git.recovery import operations
+from db_git.repository import (
+    common_git_directory,
+    configuration_root,
+    hook_path,
+    operations_directory,
+    require_safe_shared_mode,
+)
 from db_git.state import load_state, state_path
 from db_git.storage import (
     SnapshotMetadata,
@@ -86,15 +93,15 @@ def diagnose(database_url: str | None = None) -> Report:
             )
         else:
             report.add("repository", "ok", "Git working tree found.")
-            _check_hooks(report, git_dir, root)
-            if not (root / ".db-git.toml").is_file():
+            _check_hooks(report, git_dir)
+            if not (configuration_root(root) / ".db-git.toml").is_file():
                 report.add(
                     "configuration.file",
                     "error",
                     "db-git has not been initialized.",
                     "Run db-git init to create the local project configuration.",
                 )
-    except (OSError, subprocess.SubprocessError):
+    except (DbGitError, OSError, subprocess.SubprocessError):
         git_dir = None
         root = None
         report.add(
@@ -131,6 +138,11 @@ def diagnose(database_url: str | None = None) -> Report:
         )
         return report
 
+    try:
+        require_safe_shared_mode(config.mode, root)
+        report.add("worktrees", "ok", "Worktree layout is compatible with this mode.")
+    except DbGitError as e:
+        report.add("worktrees", "error", str(e), "Use per-branch mode with worktrees.")
     _check_storage(report, config, git_dir)
     versions = _check_clients(report, config, params)
     if (params.get("service") or os.environ.get("PGSERVICE")) and any(
@@ -290,19 +302,9 @@ def diagnose(database_url: str | None = None) -> Report:
     return report
 
 
-def _check_hooks(report: Report, git_dir: Path, root: Path) -> None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-path", "hooks/post-checkout"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=True,
-    )
-    hook = Path(result.stdout.strip())
-    if not hook.is_absolute():
-        hook = root / hook
+def _check_hooks(report: Report, git_dir: Path) -> None:
     try:
+        hook = hook_path(git_dir)
         managed = hook.is_file() and HOOK_IDENTIFIER in hook.read_text()
         executable = os.name == "nt" or os.access(hook, os.X_OK)
         if not managed or not executable:
@@ -332,7 +334,7 @@ def _check_hooks(report: Report, git_dir: Path, root: Path) -> None:
             )
         else:
             report.add("hooks.enabled", "ok", "Automatic switching is enabled.")
-    except (OSError, UnicodeError):
+    except (DbGitError, OSError, UnicodeError):
         report.add(
             "hooks.installed",
             "error",
@@ -344,7 +346,9 @@ def _check_hooks(report: Report, git_dir: Path, root: Path) -> None:
 def _check_storage(report: Report, config: DbGitConfig, git_dir: Path | None) -> None:
     paths = [config.snapshot_dir] if config.mode == "shared" else []
     if git_dir:
-        paths.append(git_dir / "db-git")
+        paths.append(common_git_directory(git_dir) / "db-git")
+        if git_dir != common_git_directory(git_dir):
+            paths.append(git_dir / "db-git")
     for index, path in enumerate(paths):
         ancestor = path
         while not ancestor.exists() and ancestor.parent != ancestor:
@@ -361,9 +365,9 @@ def _check_storage(report: Report, config: DbGitConfig, git_dir: Path | None) ->
             else "Check permissions on snapshot_dir and Git's db-git directory.",
         )
     roots = [config.snapshot_dir / ".operations"]
-    if git_dir:
-        roots.append(git_dir / "db-git" / "operations")
     try:
+        if git_dir:
+            roots.append(operations_directory(git_dir))
         records = [op for root in roots for op in operations(root)]
         pending = [op for op in records if op.phase not in {"complete", "rolled_back"}]
         report.add(

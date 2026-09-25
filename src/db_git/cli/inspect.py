@@ -12,6 +12,7 @@ from db_git.db import parse_database_url, with_connection_defaults, with_databas
 from db_git.errors import DbGitError
 from db_git.git import get_current_branch, get_git_dir, list_branches
 from db_git.recovery import operations
+from db_git.repository import operations_directory
 from db_git.state import load_state
 from db_git.storage import (
     branch_db_name,
@@ -397,9 +398,7 @@ def _status_per_branch(
         state = load_state(git_dir)
         total_dbs = len(state.databases)
 
-    recovery_count = (
-        len(operations(git_dir / "db-git" / "operations")) if git_dir else 0
-    )
+    recovery_count = len(operations(operations_directory(git_dir))) if git_dir else 0
     count_warning = ""
     if total_dbs > 20:
         count_warning = " [yellow](consider running db-git prune)[/]"

@@ -16,6 +16,7 @@ from db_git.db import parse_database_url
 from db_git.errors import HookError
 from db_git.files import atomic_write, durable_unlink
 from db_git.hook_script import HOOK_IDENTIFIER, render_hook_script
+from db_git.repository import git_directory, hook_path, require_safe_shared_mode
 from db_git.state import get_branch_db
 from db_git.storage import branch_db_name, has_snapshot
 
@@ -92,24 +93,14 @@ def is_rebase_in_progress(git_dir: Path) -> bool:
 
 def is_null_ref(ref: str) -> bool:
     """
-    Return True if the ref is a null ref (40 zeros) indicating a fresh clone.
+    Return True if the ref is a null ref (40 zeros) indicating an initial checkout.
     """
     return ref == _NULL_REF
 
 
 def get_git_dir() -> Path | None:
-    """
-    Return the .git directory path, or None if not in a git repo.
-    """
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if result.returncode != 0:
-        return None
-    return Path(result.stdout.strip()).resolve()
+    """Return this worktree's Git directory, including from nested directories."""
+    return git_directory()
 
 
 def list_branches() -> list[str]:
@@ -129,9 +120,9 @@ def list_branches() -> list[str]:
 
 def install_hook(git_dir: Path) -> None:
     """
-    Install the post-checkout hook.
+    Install in Git's active hooks directory, respecting core.hooksPath.
     """
-    hooks_dir = git_dir / "hooks"
+    hooks_dir = hook_path(git_dir).parent
     hooks_dir.mkdir(parents=True, exist_ok=True)
     db_git_executable = _resolve_db_git_executable()
 
@@ -147,19 +138,19 @@ def install_hook(git_dir: Path) -> None:
 
 def remove_hook(git_dir: Path) -> None:
     """
-    Remove the db-git post-checkout hook.
+    Remove the active db-git hook and restore its adjacent legacy hook.
     """
-    hooks_dir = git_dir / "hooks"
-    hook_path = hooks_dir / "post-checkout"
+    hooks_dir = hook_path(git_dir).parent
+    managed_hook = hooks_dir / "post-checkout"
     legacy_path = hooks_dir / "post-checkout.legacy"
 
-    if not hook_path.exists() or HOOK_IDENTIFIER not in hook_path.read_text():
-        raise HookError("No db-git hook found in .git/hooks/post-checkout.")
+    if not managed_hook.exists() or HOOK_IDENTIFIER not in managed_hook.read_text():
+        raise HookError("No db-git hook found at Git's active post-checkout path.")
 
     try:
-        hook_path.unlink()
+        managed_hook.unlink()
         if legacy_path.exists():
-            legacy_path.rename(hook_path)
+            legacy_path.rename(managed_hook)
             console.print("Restored original post-checkout hook")
     except OSError as e:
         raise HookError(f"Failed to remove hook: {e}") from e
@@ -185,7 +176,8 @@ def handle_post_checkout(
         if (git_dir / "db-git" / "disabled").exists():
             return
 
-        if is_null_ref(prev_head):
+        initial_worktree = is_null_ref(prev_head) and (git_dir / "commondir").exists()
+        if is_null_ref(prev_head) and not initial_worktree:
             return
 
         if is_rebase_in_progress(git_dir):
@@ -194,7 +186,7 @@ def handle_post_checkout(
         if is_detached_head():
             return
 
-        prev_branch = get_previous_branch()
+        prev_branch = None if initial_worktree else get_previous_branch()
         curr_branch = get_current_branch()
 
         if prev_branch and curr_branch and prev_branch == curr_branch:
@@ -204,6 +196,7 @@ def handle_post_checkout(
             _handle_per_branch_checkout(config, git_dir, prev_branch, curr_branch)
             return
 
+        require_safe_shared_mode(config.mode)
         backend = get_backend(config.database_url)
 
         params = backend.apply_url_defaults(parse_database_url(config.database_url))
@@ -395,8 +388,13 @@ def _write_managed_hook(hooks_dir: Path, hook_name: str, content: str) -> None:
         existing = hook_path.read_text()
         if HOOK_IDENTIFIER not in existing:
             legacy_path = hooks_dir / f"{hook_name}.legacy"
+            if legacy_path.exists():
+                raise HookError(
+                    f"Cannot preserve the existing hook: {legacy_path} already exists. "
+                    "Reconcile both hooks before installing db-git."
+                )
             hook_path.rename(legacy_path)
             console.print(f"Existing {hook_name} hook preserved as {hook_name}.legacy")
 
-    hook_path.write_text(content)
+    atomic_write(hook_path, content)
     os.chmod(hook_path, 0o755)

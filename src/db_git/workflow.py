@@ -9,6 +9,7 @@ from db_git.config import DbGitConfig
 from db_git.db import parse_database_url, with_connection_defaults, with_database_name
 from db_git.errors import DbGitError
 from db_git.recovery import require_recovered
+from db_git.repository import operations_directory, require_safe_shared_mode
 from db_git.state import get_branch_db
 from db_git.storage import branch_db_name
 
@@ -40,7 +41,8 @@ def application_url(
     config: DbGitConfig, backend: DatabaseBackend, git_dir: Path, branch: str | None
 ) -> str:
     """Resolve an existing application database, refusing incomplete operations."""
-    require_recovered(git_dir / "db-git" / "operations")
+    require_safe_shared_mode(config.mode)
+    require_recovered(operations_directory(git_dir))
     require_recovered(config.snapshot_dir / ".operations")
     params = backend.apply_url_defaults(parse_database_url(config.database_url))
     base_url = with_connection_defaults(config.database_url, params)

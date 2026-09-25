@@ -21,6 +21,7 @@ from db_git.backends.postgresql.operations import (
 from db_git.db import parse_database_url
 from db_git.errors import SnapshotError, ToolNotFoundError
 from db_git.recovery import run_operation
+from db_git.repository import require_safe_shared_mode
 from db_git.resources import FileResources
 from db_git.storage import (
     has_snapshot,
@@ -63,6 +64,7 @@ class PgDumpStrategy:
     def save(
         self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
     ) -> None:
+        require_safe_shared_mode(config.mode)
         pg_dump = shutil.which("pg_dump")
         if not pg_dump:
             raise ToolNotFoundError(
@@ -115,6 +117,7 @@ class PgDumpStrategy:
     def restore(
         self, db_url: str, branch: str, snapshot_dir: Path, config: DbGitConfig
     ) -> None:
+        require_safe_shared_mode(config.mode)
         pg_restore = shutil.which("pg_restore")
         if not pg_restore:
             raise ToolNotFoundError(
@@ -156,6 +159,7 @@ class PgDumpStrategy:
             )
 
     def cleanup(self, branch: str, snapshot_dir: Path, config: DbGitConfig) -> None:
+        require_safe_shared_mode(config.mode)
         params = self._backend.apply_url_defaults(
             parse_database_url(config.database_url)
         )

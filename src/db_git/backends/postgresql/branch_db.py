@@ -22,6 +22,7 @@ from db_git.backends.postgresql.template import _create_from_template
 from db_git.db import parse_database_url
 from db_git.errors import SnapshotError, ToolNotFoundError
 from db_git.recovery import run_operation
+from db_git.repository import operations_directory
 from db_git.state import (
     BranchDbEntry,
     get_branch_db,
@@ -73,7 +74,7 @@ class PostgresBranchDbManager:
             raise SnapshotError(
                 "Cannot clone a database onto itself or replace the seed"
             )
-        root = git_dir / "db-git" / "operations"
+        root = operations_directory(git_dir)
         try:
             with operation_scope(self._backend, self._params, root) as conn:
                 resources = PostgresResources(conn, self._config)
@@ -120,7 +121,7 @@ class PostgresBranchDbManager:
     def drop(self, name: str, branch: str, git_dir: Path) -> None:
         # Validate before connecting, then again while holding the operation lock.
         self._require_owner(name, branch, git_dir)
-        root = git_dir / "db-git" / "operations"
+        root = operations_directory(git_dir)
         with operation_scope(self._backend, self._params, root) as conn:
             self._require_owner(name, branch, git_dir)
             state = load_state(git_dir)
