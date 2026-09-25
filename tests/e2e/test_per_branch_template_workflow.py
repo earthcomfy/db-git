@@ -104,7 +104,7 @@ class TestPerBranchTemplateWorkflow:
     # Config precedence
     # -----------------------------------------------------------------------
 
-    def test_env_var_overrides_toml(self, initialized: dict) -> None:
+    def test_dedicated_env_var_overrides_toml(self, initialized: dict) -> None:
         toml = initialized["repo"] / ".db-git.toml"
         toml.write_text(
             toml.read_text().replace(
@@ -112,13 +112,16 @@ class TestPerBranchTemplateWorkflow:
                 "postgresql://nope:nope@127.0.0.1:1/nope",
             )
         )
-        env = {**initialized["subprocess_env"], "DATABASE_URL": initialized["db_url"]}
+        env = {
+            **initialized["subprocess_env"],
+            "DB_GIT_DATABASE_URL": initialized["db_url"],
+        }
         assert run_db_git("status", cwd=initialized["repo"], env=env).returncode == 0
 
     def test_cli_flag_overrides_env(self, initialized: dict) -> None:
         env = {
             **initialized["subprocess_env"],
-            "DATABASE_URL": "postgresql://nope:nope@127.0.0.1:1/nope",
+            "DB_GIT_DATABASE_URL": "postgresql://nope:nope@127.0.0.1:1/nope",
         }
         assert (
             run_db_git(
@@ -470,7 +473,7 @@ class TestPerBranchTemplateWorkflow:
         env = initialized["subprocess_env"]
 
         seed_users(initialized["db_url"])
-        broken = {**env, "DATABASE_URL": "postgresql://x:x@127.0.0.1:1/x"}
+        broken = {**env, "DB_GIT_DATABASE_URL": "postgresql://x:x@127.0.0.1:1/x"}
         result = subprocess.run(
             ["git", "checkout", "-b", "feature"],
             cwd=repo,

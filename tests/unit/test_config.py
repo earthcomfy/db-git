@@ -229,3 +229,20 @@ def test_malformed_toml_does_not_silently_use_environment(tmp_path, monkeypatch)
     monkeypatch.setenv("DB_GIT_STRATEGY", "template")
     with pytest.raises(ConfigError, match="TOML syntax"):
         load_config(project_root=tmp_path)
+
+
+def test_application_url_does_not_override_configured_seed(tmp_path, monkeypatch):
+    write_config(
+        tmp_path, {"database_url": "postgresql:///seed", "strategy": "template"}
+    )
+    monkeypatch.delenv("DB_GIT_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql:///branch")
+    assert load_config(project_root=tmp_path).database_url == "postgresql:///seed"
+    monkeypatch.setenv("DB_GIT_DATABASE_URL", "postgresql:///explicit-seed")
+    assert (
+        load_config(project_root=tmp_path).database_url == "postgresql:///explicit-seed"
+    )
+    assert (
+        load_config({"database_url": "postgresql:///cli"}, tmp_path).database_url
+        == "postgresql:///cli"
+    )

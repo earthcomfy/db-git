@@ -58,6 +58,9 @@ def mask_url(url: str) -> str:
             else part
             for part in parsed.query.split("&")
         )
-        return urlunparse(parsed._replace(netloc=netloc, query=query))
+        masked = urlunparse(parsed._replace(netloc=netloc, query=query))
+        if not parsed.netloc and url.startswith(f"{parsed.scheme}://"):
+            masked = f"{parsed.scheme}://{masked[len(parsed.scheme) + 1 :]}"
+        return masked
     except ValueError:
         return "(invalid database URL)"

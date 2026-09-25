@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import quote, unquote, urlparse, urlunparse
+from urllib.parse import quote, unquote, urlencode, urlparse, urlunparse
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
@@ -39,4 +39,31 @@ def with_database_name(url: str, dbname: str) -> str:
         else part
         for part in parsed.query.split("&")
     )
-    return urlunparse(parsed._replace(path=f"/{quote(dbname, safe='')}", query=query))
+    rewritten = urlunparse(
+        parsed._replace(path=f"/{quote(dbname, safe='')}", query=query)
+    )
+    # urllib treats PostgreSQL as an unknown scheme and drops an empty authority.
+    if not parsed.netloc:
+        rewritten = f"{parsed.scheme}://{rewritten[len(parsed.scheme) + 1 :]}"
+    return rewritten
+
+
+def with_connection_defaults(url: str, params: dict[str, str | int]) -> str:
+    """Make implicit backend defaults explicit for applications using the URL."""
+    original = parse_database_url(url)
+    missing = {
+        key: params[key]
+        for key in ("host", "port", "user")
+        if original.get(key) is None and key in params
+    }
+    if not missing:
+        return url
+    # Preserve existing query bytes (libpq treats '+' literally).
+    before_fragment, separator, fragment = url.partition("#")
+    joiner = "&" if "?" in before_fragment else "?"
+    return (
+        before_fragment
+        + joiner
+        + urlencode(missing, quote_via=quote)
+        + (separator + fragment if separator else "")
+    )

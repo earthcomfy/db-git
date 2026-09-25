@@ -8,7 +8,7 @@ from rich.table import Table
 
 from db_git.backends import DatabaseBackend, SnapshotStrategy, get_backend
 from db_git.config import DbGitConfig, load_config
-from db_git.db import parse_database_url, with_database_name
+from db_git.db import parse_database_url, with_connection_defaults, with_database_name
 from db_git.errors import DbGitError
 from db_git.git import get_current_branch, get_git_dir, list_branches
 from db_git.recovery import operations
@@ -32,7 +32,7 @@ from ._prompts import confirm_prune
 def list_cmd(
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
 ) -> None:
     """
@@ -85,7 +85,7 @@ def prune(
     ] = False,
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
 ) -> None:
     """
@@ -157,7 +157,7 @@ def prune(
 def status(
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
 ) -> None:
     """
@@ -212,7 +212,7 @@ def url(
     branch: Annotated[str | None, typer.Argument()] = None,
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
 ) -> None:
     """
@@ -222,9 +222,11 @@ def url(
     try:
         config = load_config(cli_overrides={"database_url": database_url})
 
+        backend = get_backend(config.database_url)
+        params = backend.apply_url_defaults(parse_database_url(config.database_url))
+        base_url = with_connection_defaults(config.database_url, params)
         if config.mode != "per-branch":
-            # Shared mode: one fixed database, so emit the configured URL as-is.
-            typer.echo(config.database_url)
+            typer.echo(base_url)
             return
 
         if branch is None:
@@ -233,8 +235,6 @@ def url(
                 console.print("[red]Error:[/] HEAD is detached. Specify a branch name.")
                 raise typer.Exit(1)
 
-        backend = get_backend(config.database_url)
-        params = backend.apply_url_defaults(parse_database_url(config.database_url))
         dbname = str(params["dbname"])
         target_db = branch_db_name(
             branch,
@@ -243,7 +243,7 @@ def url(
             backend.max_identifier_length,
             git_dir=get_git_dir(),
         )
-        typer.echo(with_database_name(config.database_url, target_db))
+        typer.echo(with_database_name(base_url, target_db))
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(1) from e

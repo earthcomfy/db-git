@@ -119,7 +119,7 @@ class TestSharedPgdumpWorkflow:
     # Config precedence
     # -----------------------------------------------------------------------
 
-    def test_env_var_overrides_toml(self, initialized: dict) -> None:
+    def test_dedicated_env_var_overrides_toml(self, initialized: dict) -> None:
         toml = initialized["repo"] / ".db-git.toml"
         toml.write_text(
             toml.read_text().replace(
@@ -127,13 +127,16 @@ class TestSharedPgdumpWorkflow:
                 "postgresql://nope:nope@127.0.0.1:1/nope",
             )
         )
-        env = {**initialized["subprocess_env"], "DATABASE_URL": initialized["db_url"]}
+        env = {
+            **initialized["subprocess_env"],
+            "DB_GIT_DATABASE_URL": initialized["db_url"],
+        }
         assert run_db_git("status", cwd=initialized["repo"], env=env).returncode == 0
 
     def test_cli_flag_overrides_env(self, initialized: dict) -> None:
         env = {
             **initialized["subprocess_env"],
-            "DATABASE_URL": "postgresql://nope:nope@127.0.0.1:1/nope",
+            "DB_GIT_DATABASE_URL": "postgresql://nope:nope@127.0.0.1:1/nope",
         }
         result = run_db_git(
             "status",
@@ -405,7 +408,7 @@ class TestSharedPgdumpWorkflow:
         make_branch(initialized, "feature")
         run_git("checkout", get_default_branch(repo), cwd=repo, env=env)
 
-        broken = {**env, "DATABASE_URL": "postgresql://x:x@127.0.0.1:1/x"}
+        broken = {**env, "DB_GIT_DATABASE_URL": "postgresql://x:x@127.0.0.1:1/x"}
         result = subprocess.run(
             ["git", "checkout", "feature"],
             cwd=repo,

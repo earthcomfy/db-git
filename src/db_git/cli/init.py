@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from enum import StrEnum
 from typing import Annotated
@@ -49,7 +50,7 @@ class ConnectionPolicyChoice(StrEnum):
 def init(
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
     mode: Annotated[ModeChoice | None, typer.Option("--mode")] = None,
     strategy: Annotated[StrategyChoice | None, typer.Option("--strategy")] = None,
@@ -80,9 +81,14 @@ def init(
         if is_reinit:
             console.print("[dim]Updating existing configuration.[/]\n")
 
+        # Preserve a saved seed unless the CLI or DB_GIT_DATABASE_URL overrides it.
+        # Application DATABASE_URL is only a fallback when no seed is saved.
         resolved_url = resolve_with_prompt(
-            flag_value=database_url,
-            existing=existing_config.get("database_url"),
+            flag_value=database_url
+            if database_url is not None
+            else os.environ.get("DB_GIT_DATABASE_URL"),
+            existing=existing_config.get("database_url")
+            or os.environ.get("DATABASE_URL"),
             prompt_text="Database URL",
             required=True,
         )

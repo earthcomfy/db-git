@@ -16,8 +16,8 @@ VALID_STRATEGIES = {"template", "pgdump"}
 _CONFIG_COMMENTS: dict[str, str] = {
     "database_url": (
         "Base database connection URL: credentials, host/port, and the database for\n"
-        "# your default branch. In per-branch mode each branch's database is copied\n"
-        "# from this one."
+        "# your default branch. New branch databases can be copied from this seed\n"
+        "# or from another branch's recorded database."
     ),
     "mode": (
         "How db-git manages databases across branches.\n"
@@ -25,7 +25,7 @@ _CONFIG_COMMENTS: dict[str, str] = {
         '# "per-branch": each branch gets its own database'
     ),
     "default_branch": (
-        "The default branch whose database keeps the original name from DATABASE_URL.\n"
+        "The default branch whose database keeps the original name from database_url.\n"
         "# New branch databases use a readable branch suffix plus a stable hash."
     ),
     "strategy": (
@@ -64,19 +64,26 @@ def load_config(
     project_root: Path | None = None,
 ) -> DbGitConfig:
     """
-    Load configuration with precedence: defaults < .db-git.toml < env vars < CLI.
+    Load defaults, then apply file settings, DB_GIT_* overrides, and CLI values.
+
+    DATABASE_URL supplies the seed URL only when the file omits database_url.
+    DB_GIT_DATABASE_URL and explicit CLI values can override that seed.
     """
     root = project_root or find_project_root()
     merged: dict[str, object] = {}
 
-    # Layer 1: .db-git.toml
+    # Read project settings before applying explicit overrides.
     if root:
         merged.update(load_dotfile_config(root))
 
-    # Layer 3: environment variables
+    # Application DATABASE_URL must not replace a configured seed connection.
+    if "database_url" not in merged and "DATABASE_URL" in os.environ:
+        merged["database_url"] = os.environ["DATABASE_URL"]
+
+    # Dedicated db-git environment overrides.
     merged.update(_load_env_vars())
 
-    # Layer 4: CLI overrides
+    # Explicit CLI values have highest precedence; omitted options change nothing.
     if cli_overrides:
         for key, value in cli_overrides.items():
             if value is not None:
@@ -91,7 +98,7 @@ def load_config(
 
 def find_project_root() -> Path | None:
     """
-    Walk up from cwd looking for a .git directory.
+    Find the nearest ancestor containing a .git entry (directory or file).
     """
     current = Path.cwd()
     for parent in [current, *current.parents]:
@@ -121,10 +128,9 @@ def load_dotfile_config(root: Path) -> dict[str, object]:
 
 def _load_env_vars() -> dict[str, object]:
     """
-    Load configuration from environment variables.
+    Load dedicated DB_GIT_* overrides; load_config handles DATABASE_URL fallback.
     """
     env_map: list[tuple[str, str]] = [
-        ("DATABASE_URL", "database_url"),
         ("DB_GIT_DATABASE_URL", "database_url"),
         ("DB_GIT_MODE", "mode"),
         ("DB_GIT_STRATEGY", "strategy"),
@@ -143,7 +149,7 @@ def _load_env_vars() -> dict[str, object]:
 
 def _build_config(merged: dict[str, object]) -> DbGitConfig:
     """
-    Build a DbGitConfig from the merged configuration dict.
+    Apply merged settings to the DbGitConfig defaults.
     """
     config = DbGitConfig()
 

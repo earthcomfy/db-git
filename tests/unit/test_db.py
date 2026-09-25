@@ -209,3 +209,30 @@ def test_branch_clone_passes_options_to_source_and_staging_database(monkeypatch)
         assert dsn["application_name"] == "clone"
         assert "secret" not in str(command)
         assert call.kwargs["env"]["PGPASSWORD"] == "secret"
+
+
+def test_rewrite_preserves_empty_authority_for_socket_and_service_urls():
+    for original in ("postgresql:///seed", "postgresql:///seed?service=project"):
+        rewritten = with_database_name(original, "branch")
+        assert rewritten.startswith("postgresql:///branch")
+        assert parse_database_url(rewritten)["dbname"] == "branch"
+
+
+def test_application_connection_defaults_match_management_connection():
+    from db_git.backends.postgresql.backend import PostgresqlBackend
+    from db_git.db import with_connection_defaults
+
+    original = "postgresql:///app?password=a+b&sslmode=require"
+    params = PostgresqlBackend().apply_url_defaults(parse_database_url(original))
+    resolved = with_connection_defaults(original, params)
+    assert parse_database_url(resolved) == {**parse_database_url(original), **params}
+    assert "password=a+b&sslmode=require" in resolved
+
+
+def test_service_url_keeps_service_defaults():
+    from db_git.backends.postgresql.backend import PostgresqlBackend
+    from db_git.db import with_connection_defaults
+
+    original = "postgresql:///app?service=project"
+    params = PostgresqlBackend().apply_url_defaults(parse_database_url(original))
+    assert with_connection_defaults(original, params) == original

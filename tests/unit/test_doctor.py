@@ -230,10 +230,10 @@ def test_cli_url_honors_prefixed_environment_and_explicit_override(
     runner = CliRunner()
     result = runner.invoke(app, ["url"])
     assert result.exit_code == 0, result.output
-    assert result.stdout.strip() == "postgresql:///specific"
+    assert result.stdout.strip().startswith("postgresql:///specific?")
     result = runner.invoke(app, ["url", "--database-url", "postgresql:///explicit"])
     assert result.exit_code == 0, result.output
-    assert result.stdout.strip() == "postgresql:///explicit"
+    assert result.stdout.strip().startswith("postgresql:///explicit?")
 
 
 def test_environment_only_setup_still_needs_init(project, online, monkeypatch):

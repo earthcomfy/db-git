@@ -26,6 +26,7 @@ local database aligned with the branch you are working on.
   - `pgdump`: portable snapshots using `pg_dump` and `pg_restore`
 - Manual `save`, `restore`, `create`, `reset`, `list`, `status`, `prune`, and `recover`
   commands
+- Launch applications with `run -- <command>` and clone with `create --from <branch>`
 - Read-only `doctor` diagnostics with actionable text and JSON reports
 - Staged replacements, retained recovery copies, and interrupted-operation recovery
 - Safe hook behavior: checkout is never blocked by db-git failures
@@ -72,19 +73,28 @@ needs to connect to the branch database. For example, when working on
 New names include a stable hash so branches such as `feature/foo-bar` and
 `feature/foo_bar` cannot share a database just because their readable names match.
 
-`db-git url` prints the full connection URL for the current branch, so you can
-hand it straight to your app or client:
+Launch your app with the current branch's database:
 
 ```bash
-export DATABASE_URL=$(db-git url)
+db-git run -- npm run dev
+db-git run -- python manage.py migrate
+```
+
+`db-git url` also prints the full connection URL for use with other tools:
+
+```bash
+export DATABASE_URL="$(db-git url)"
 psql "$(db-git url)"
 ```
+
+Your configured seed URL stays separate from the application's `DATABASE_URL`,
+so subsequent db-git commands keep targeting the correct seed.
 
 ## Choosing a Mode
 
 ### Shared Mode
 
-Shared mode keeps one database name from `DATABASE_URL`.
+Shared mode keeps the database name from the configured `database_url`.
 
 Use this when:
 
@@ -187,6 +197,24 @@ Create a branch database before checking out the branch:
 db-git create feature/auth
 ```
 
+Choose the source explicitly:
+
+```bash
+db-git create feature/payments --from feature/auth
+db-git create feature/clean-start --from main
+```
+
+`--from` copies the source branch's existing database and records that branch as
+its origin. The configured default branch selects the seed. Other sources must
+have recorded ownership and an existing database, including recorded legacy
+names. An unavailable explicit source produces an error; there is no fallback.
+The command creates a database, without checking out or creating a Git branch.
+Existing target databases are never overwritten.
+
+Without `--from`, `create` retains its current-branch behavior: copy the current
+branch's recorded database when available, otherwise use the seed. `--from` is
+available only in per-branch mode.
+
 Build a replacement from the seed database, retaining the previous database for recovery:
 
 ```bash
@@ -195,6 +223,31 @@ db-git reset feature/auth
 
 The default branch database cannot be reset because it is the seed for other
 branch databases.
+
+### Run an application or migration
+
+```bash
+db-git run -- npm run dev
+db-git run -- python manage.py migrate
+db-git run -- psql
+```
+
+`run` resolves the current branch once, verifies its database exists, then launches
+the command with `DATABASE_URL` set to that database. In shared mode it uses the
+configured database. The child also receives `DB_GIT_DATABASE_URL` containing the
+seed URL, so nested db-git commands retain the management connection.
+
+The command inherits your working directory, input/output, and remaining
+environment. On POSIX it replaces the wrapper process, preserving signals and
+the application's exit status. A missing executable exits `127`; an executable
+that cannot be started exits `126`. Arguments are passed directly without shell
+expansion. Use `sh -c '...'` explicitly if you need shell syntax.
+
+`run` requires initialization and an existing database; it does not automatically
+clone one. It refuses untracked branch databases, interrupted recovery operations,
+detached HEAD in per-branch mode, and disabled switching in shared mode. Create or
+recover the database first. Stop and restart your app when you switch branches;
+a running process keeps the URL selected at launch.
 
 ### Prune Deleted Branches
 
@@ -301,7 +354,7 @@ Supported configuration keys:
 | `max_snapshots` | Snapshot count kept by prune logic | `20` |
 | `force_terminate_timeout_ms` | Active connection termination timeout | `5000` |
 
-Configuration precedence:
+Configuration precedence for settings other than the seed URL:
 
 1. Built-in defaults
 2. `.db-git.toml`
@@ -321,7 +374,18 @@ DB_GIT_MAX_SNAPSHOTS
 DB_GIT_FORCE_TERMINATE_TIMEOUT_MS
 ```
 
-`DB_GIT_DATABASE_URL` takes precedence over `DATABASE_URL`.
+Seed URL precedence, highest first:
+
+1. Explicit `--database-url`
+2. `DB_GIT_DATABASE_URL`
+3. `database_url` in `.db-git.toml`
+4. `DATABASE_URL`, only when no seed is configured
+
+**Changed behavior:** exporting an application `DATABASE_URL` no longer overrides
+an initialized project's seed. To deliberately change the management connection,
+use `DB_GIT_DATABASE_URL` or `--database-url`. Initialization still accepts
+`DATABASE_URL` as a starting value when there is no saved seed; reinitialization
+preserves the saved seed unless explicitly overridden.
 
 ### PostgreSQL connection options
 
@@ -337,6 +401,9 @@ database_url = "postgresql://dev@localhost/myapp?sslmode=require&connect_timeout
 ```
 
 `db-git url` percent-encodes branch database names and preserves connection options.
+Both `url` and `run` make implicit host, port, and user defaults explicit in the
+application URL, so applications connect with the same settings as db-git.
+Service URLs continue to use their service-file defaults.
 If the original URL has a `dbname` query parameter, it is updated along with the
 path. Encode spaces as `%20`; libpq treats `+` literally.
 

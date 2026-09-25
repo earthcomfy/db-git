@@ -9,7 +9,9 @@ from db_git.config import load_config
 from db_git.db import parse_database_url
 from db_git.errors import DbGitError
 from db_git.git import get_current_branch, get_git_dir
+from db_git.state import get_branch_db
 from db_git.storage import branch_db_name
+from db_git.workflow import owned_database
 
 from ._common import debug_enabled, require_init
 from ._console import app, console
@@ -18,21 +20,25 @@ from ._console import app, console
 @app.command()
 def create(
     branch: Annotated[str | None, typer.Argument()] = None,
+    from_branch: Annotated[
+        str | None,
+        typer.Option("--from", help="Clone this branch's existing database."),
+    ] = None,
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
 ) -> None:
     """
-    Proactively create a per-branch database before checkout.
-
-    Per-branch mode only.
+    Create a per-branch database, optionally choosing its source with --from.
     """
     require_init()
     try:
         config = load_config(cli_overrides={"database_url": database_url})
 
         if config.mode != "per-branch":
+            if from_branch is not None:
+                raise DbGitError("create --from requires per-branch mode.")
             console.print(
                 "Shared mode: use [cyan]db-git save[/] to snapshot the database."
             )
@@ -72,17 +78,25 @@ def create(
         created_from = config.default_branch
 
         current = get_current_branch()
-        if current:
-            candidate = branch_db_name(
-                current,
-                dbname,
-                config.default_branch,
-                backend.max_identifier_length,
-                git_dir=git_dir,
-            )
-            if manager.exists(candidate):
-                source_db = candidate
-                created_from = current
+        if from_branch is not None:
+            source_db = owned_database(from_branch, config, backend, git_dir)
+            if not manager.exists(source_db):
+                raise DbGitError(
+                    f"Source database for '{from_branch}' is missing. "
+                    "Recover or create it before cloning."
+                )
+            created_from = from_branch
+        elif current:
+            # Use the current branch's recorded database when available;
+            # otherwise keep the seed as the source.
+            if current == config.default_branch or get_branch_db(git_dir, current):
+                candidate = owned_database(current, config, backend, git_dir)
+                if manager.exists(candidate):
+                    source_db = candidate
+                    created_from = current
+
+        if source_db == target_db:
+            raise DbGitError("Cannot clone a database onto itself.")
 
         manager.create(target_db, source_db, branch, created_from, git_dir)
         console.print(f"[green]Created[/] database: {target_db}")
@@ -106,7 +120,7 @@ def reset(
     branch: Annotated[str | None, typer.Argument()] = None,
     database_url: Annotated[
         str | None,
-        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
+        typer.Option("--database-url"),
     ] = None,
 ) -> None:
     """
