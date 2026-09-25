@@ -331,6 +331,7 @@ def _handle_per_branch_checkout(
         config.default_branch,
         backend.max_identifier_length,
         git_dir=git_dir,
+        engine=backend.engine,
     )
 
     # Default branch uses the seed DB directly
@@ -354,6 +355,7 @@ def _handle_per_branch_checkout(
             config.default_branch,
             backend.max_identifier_length,
             git_dir=git_dir,
+            engine=backend.engine,
         )
         if manager.exists(prev_db):
             source_db = prev_db

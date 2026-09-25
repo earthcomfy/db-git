@@ -31,6 +31,7 @@ def owned_database(
         config.default_branch,
         backend.max_identifier_length,
         git_dir=git_dir,
+        engine=backend.engine,
     )
     if not isinstance(name, str) or not name:
         raise DbGitError("Invalid database name in local state. Run db-git doctor.")

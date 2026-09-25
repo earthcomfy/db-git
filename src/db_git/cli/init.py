@@ -40,6 +40,7 @@ class ModeChoice(StrEnum):
 class StrategyChoice(StrEnum):
     template = "template"
     pgdump = "pgdump"
+    backup = "backup"
 
 
 class ConnectionPolicyChoice(StrEnum):
@@ -102,9 +103,44 @@ def init(
             raise typer.Exit(1)
 
         backend = get_backend(resolved_url)
+        if backend.engine == "sqlite":
+            from ._sqlite_init import initialize
+
+            initialize(
+                project_root,
+                git_dir,
+                resolved_url,
+                existing_config,
+                mode=mode.value if mode is not None else None,
+                strategy=strategy.value if strategy is not None else None,
+                policy=on_active_connections.value
+                if on_active_connections is not None
+                else None,
+                no_hook=no_hook,
+            )
+            return
+        if str(existing_config.get("database_url", "")).startswith("sqlite:"):
+            from db_git.repository import operations_directory
+            from db_git.state import load_state
+
+            if load_state(git_dir).databases or any(
+                operations_directory(git_dir).glob("*.json")
+            ):
+                raise DbGitError(
+                    "Existing SQLite ownership or recovery records must keep their "
+                    "configuration. Initialize the other engine "
+                    "in a separate repository."
+                )
+        if (
+            strategy is not None
+            and strategy.value not in backend.capabilities.strategies
+        ):
+            raise DbGitError(
+                f"Strategy '{strategy.value}' is not supported by {backend.engine}."
+            )
         params = backend.apply_url_defaults(parse_database_url(resolved_url))
         permissions: PgPermissions | None = None
-        version: int | None = None
+        version: int | str | None = None
 
         try:
             version = backend.get_engine_version(resolved_url)

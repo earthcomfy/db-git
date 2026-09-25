@@ -236,6 +236,14 @@ def url(
                 console.print("[red]Error:[/] HEAD is detached. Specify a branch name.")
                 raise typer.Exit(1)
 
+        if backend.engine == "sqlite":
+            from db_git.workflow import owned_database
+
+            directory = get_git_dir()
+            assert directory is not None
+            name = owned_database(branch, config, backend, directory)
+            typer.echo(with_database_name(base_url, name))
+            return
         dbname = str(params["dbname"])
         target_db = branch_db_name(
             branch,
@@ -243,6 +251,7 @@ def url(
             config.default_branch,
             backend.max_identifier_length,
             git_dir=get_git_dir(),
+            engine=backend.engine,
         )
         typer.echo(with_database_name(base_url, target_db))
     except DbGitError as e:
@@ -333,13 +342,22 @@ def _prune_per_branch(config: DbGitConfig, dry_run: bool, yes: bool) -> None:
         console.print("Nothing to prune.")
         return
 
+    sqlite = config.database_url.startswith("sqlite:")
     if dry_run:
+        action = "untrack (file retained)" if sqlite else "drop"
         for branch_name, entry in stale:
-            console.print(f"  [dim]Would drop:[/] {entry.db_name} ({branch_name})")
+            console.print(f"  [dim]Would {action}:[/] {entry.db_name} ({branch_name})")
         return
 
+    if sqlite:
+        console.print(
+            "SQLite pruning removes ownership records; database files are retained "
+            "for manual cleanup after applications close."
+        )
     if not confirm_prune(
-        "The following branch databases will be dropped:",
+        "The following branch records will be removed:"
+        if sqlite
+        else "The following branch databases will be dropped:",
         [
             (entry.db_name, f"{branch_name}, created from {entry.created_from}")
             for branch_name, entry in stale
@@ -355,20 +373,27 @@ def _prune_per_branch(config: DbGitConfig, dry_run: bool, yes: bool) -> None:
     for branch_name, entry in stale:
         try:
             manager.drop(entry.db_name, branch_name, git_dir)
-            console.print(f"  Dropped: {entry.db_name} ({branch_name})")
+            console.print(
+                f"  {'Untracked (file retained)' if sqlite else 'Dropped'}: "
+                f"{entry.db_name} ({branch_name})"
+            )
             pruned += 1
         except DbGitError as e:
             console.print(f"  [yellow]Failed to drop {entry.db_name}:[/] {e}")
 
     if pruned:
-        console.print(f"\nDropped {pruned} database(s).")
+        console.print(
+            f"\nPruned {pruned} branch record(s)."
+            if sqlite
+            else f"\nDropped {pruned} database(s)."
+        )
 
 
 def _status_per_branch(
     config: DbGitConfig,
     current_branch: str,
     backend: DatabaseBackend,
-    version: int,
+    version: int | str,
     detected: SnapshotStrategy,
 ) -> None:
     """
@@ -386,6 +411,7 @@ def _status_per_branch(
             config.default_branch,
             backend.max_identifier_length,
             git_dir=git_dir,
+            engine=backend.engine,
         )
         db_exists = backend.branch_db_manager(config).exists(current_db)
         db_status = "[green]exists[/]" if db_exists else "[dim]not created[/]"

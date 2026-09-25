@@ -17,25 +17,26 @@ from db_git.repository import (
 
 VALID_CONNECTION_POLICIES = {"terminate", "fail"}
 VALID_MODES = {"shared", "per-branch"}
-VALID_STRATEGIES = {"template", "pgdump"}
+VALID_STRATEGIES = {"template", "pgdump", "backup"}
 
 _CONFIG_COMMENTS: dict[str, str] = {
     "database_url": (
-        "Base database connection URL: credentials, host/port, and the database for\n"
-        "# your default branch. New branch databases can be copied from this seed\n"
+        "Default branch: seed connection URL (PostgreSQL) or file URL (SQLite).\n"
+        "# New branch databases can be copied from this seed\n"
         "# or from another branch's recorded database."
     ),
     "mode": (
         "How db-git manages databases across branches.\n"
-        '# "shared": one database, snapshot/restore on switch\n'
+        '# "shared": PostgreSQL snapshot/restore into one database on switch\n'
         '# "per-branch": each branch gets its own database'
     ),
     "default_branch": (
         "The default branch whose database keeps the original name from database_url.\n"
-        "# New branch databases use a readable branch suffix plus a stable hash."
+        "# PostgreSQL uses hashed branch names; SQLite uses unique file generations."
     ),
     "strategy": (
-        "Snapshot strategy for cloning databases.\n"
+        "Strategy for cloning databases.\n"
+        '# "backup": SQLite online backup into a new branch file\n'
         '# "template": uses CREATE DATABASE ... TEMPLATE '
         "(fast, requires CREATEDB privilege)\n"
         '# "pgdump": uses pg_dump/pg_restore (slower, restore/clone requires CREATEDB)'
@@ -43,8 +44,8 @@ _CONFIG_COMMENTS: dict[str, str] = {
     "on_active_connections": (
         "What to do when active connections block a database operation.\n"
         '# "terminate": kill connections and proceed '
-        "(needs superuser or pg_signal_backend)\n"
-        '# "fail": stop with an error'
+        "(PostgreSQL only; needs superuser or pg_signal_backend)\n"
+        '# "fail": stop with an error (required for SQLite)'
     ),
 }
 
@@ -63,6 +64,7 @@ class DbGitConfig:
     snapshot_dir: Path = field(default_factory=lambda: Path(".git/db-git/snapshots"))
     max_snapshots: int = 20
     force_terminate_timeout_ms: int = 5000
+    backup_timeout_ms: int = 5000
 
 
 def load_config(
@@ -103,6 +105,16 @@ def load_config(
             config.snapshot_dir = common_git_directory(git_dir) / "db-git" / "snapshots"
     if root and not config.snapshot_dir.is_absolute():
         config.snapshot_dir = root / config.snapshot_dir
+    if config.database_url.startswith("sqlite:"):
+        from db_git.backends.sqlite.urls import database_path, database_url
+
+        config.database_url = database_url(database_path(config.database_url, root))
+        if "mode" not in merged:
+            config.mode = "per-branch"
+        if "strategy" not in merged:
+            config.strategy = "backup"
+        if "on_active_connections" not in merged:
+            config.on_active_connections = "fail"
     _validate_config(config)
     return config
 
@@ -143,6 +155,7 @@ def _load_env_vars() -> dict[str, object]:
         ("DB_GIT_SNAPSHOT_DIR", "snapshot_dir"),
         ("DB_GIT_MAX_SNAPSHOTS", "max_snapshots"),
         ("DB_GIT_FORCE_TERMINATE_TIMEOUT_MS", "force_terminate_timeout_ms"),
+        ("DB_GIT_BACKUP_TIMEOUT_MS", "backup_timeout_ms"),
     ]
     result: dict[str, object] = {}
     for env_key, config_key in env_map:
@@ -195,6 +208,13 @@ def _build_config(merged: dict[str, object]) -> DbGitConfig:
                 f"{merged['force_terminate_timeout_ms']}"
             ) from e
 
+    if "backup_timeout_ms" in merged:
+        try:
+            config.backup_timeout_ms = int(str(merged["backup_timeout_ms"]))
+        except ValueError as e:
+            raise ConfigError(
+                "Invalid backup_timeout_ms; use a positive integer."
+            ) from e
     return config
 
 
@@ -207,9 +227,14 @@ def _validate_config(config: DbGitConfig) -> None:
             "No database URL configured. Run 'db-git init' or set DATABASE_URL."
         )
 
-    if config.max_snapshots < 1 or config.force_terminate_timeout_ms < 1:
+    if (
+        config.max_snapshots < 1
+        or config.force_terminate_timeout_ms < 1
+        or config.backup_timeout_ms < 1
+    ):
         raise ConfigError(
-            "max_snapshots and force_terminate_timeout_ms must be positive."
+            "max_snapshots, force_terminate_timeout_ms, and backup_timeout_ms "
+            "must be positive."
         )
 
     if config.mode not in VALID_MODES:
@@ -222,6 +247,20 @@ def _validate_config(config: DbGitConfig) -> None:
         raise ConfigError(
             "Strategy not configured. Run 'db-git init' to set up db-git."
         )
+
+    if config.database_url.startswith("sqlite:"):
+        if config.mode != "per-branch" or config.strategy != "backup":
+            raise ConfigError(
+                "SQLite supports per-branch mode with strategy='backup'; "
+                "shared mode is unsupported."
+            )
+        if config.on_active_connections != "fail":
+            raise ConfigError(
+                "SQLite cannot terminate application connections; "
+                "use on_active_connections='fail'."
+            )
+    elif config.strategy == "backup":
+        raise ConfigError("The backup strategy is only supported by SQLite.")
 
     if config.on_active_connections not in VALID_CONNECTION_POLICIES:
         raise ConfigError(

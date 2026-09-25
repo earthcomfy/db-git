@@ -65,6 +65,7 @@ def create(
             config.default_branch,
             backend.max_identifier_length,
             git_dir=git_dir,
+            engine=backend.engine,
         )
 
         if manager.exists(target_db):
@@ -157,6 +158,7 @@ def reset(
             config.default_branch,
             backend.max_identifier_length,
             git_dir=git_dir,
+            engine=backend.engine,
         )
         seed_db = dbname
 
@@ -168,6 +170,14 @@ def reset(
             raise typer.Exit(1)
 
         manager.reset(target_db, seed_db, branch, config.default_branch, git_dir)
+        if backend.engine == "sqlite":
+            entry = get_branch_db(git_dir, branch)
+            assert entry is not None
+            target_db = entry.db_name
+            console.print(
+                "[dim]Previous SQLite file retained. Restart applications "
+                "through db-git run to use the new file.[/]"
+            )
         console.print(f"[green]Reset[/] database '{target_db}' from seed '{seed_db}'")
     except DbGitError as e:
         console.print(f"[red]Error:[/] {e}")

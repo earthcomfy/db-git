@@ -61,8 +61,13 @@ def branch_db_name(
     max_length: int = _DEFAULT_MAX_IDENTIFIER,
     *,
     git_dir: Path | None = None,
+    engine: str = "postgresql",
 ) -> str:
     """Resolve a recorded database, or generate a distinct name for a new branch."""
+    if engine == "sqlite":
+        from db_git.backends.sqlite.branch_db import branch_name
+
+        return branch_name(branch, dbname, default_branch, git_dir)
     if branch == default_branch:
         return dbname
     if git_dir is not None:

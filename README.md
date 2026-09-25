@@ -11,8 +11,8 @@ changes: schema migrations, seed data, experimental feature work, and branch
 switching during reviews. It installs a git `post-checkout` hook and keeps your
 local database aligned with the branch you are working on.
 
-> Status: PostgreSQL is supported today; support for additional database
-> engines is planned.
+> Status: PostgreSQL supports shared and per-branch modes. SQLite supports
+> per-branch databases using its online backup API. MySQL support is planned.
 
 ## Features
 
@@ -20,7 +20,7 @@ local database aligned with the branch you are working on.
 - Two workflows:
   - `shared`: one database, saved and restored per branch
   - `per-branch`: one database per branch
-- PostgreSQL support today, with plans for more database backends
+- PostgreSQL support and SQLite per-branch databases
 - Two PostgreSQL snapshot strategies:
   - `template`: fast database clones using `CREATE DATABASE ... TEMPLATE`
   - `pgdump`: portable snapshots using `pg_dump` and `pg_restore`
@@ -90,6 +90,59 @@ psql "$(db-git url)"
 
 Your configured seed URL stays separate from the application's `DATABASE_URL`,
 so subsequent db-git commands keep targeting the correct seed.
+
+## SQLite
+
+SQLite uses **per-branch mode** and the `backup` strategy. Start with an existing,
+untracked local database file:
+
+```bash
+db-git init --database-url sqlite:///development.sqlite3
+# Equivalent explicit options: --mode per-branch --strategy backup
+
+git checkout -b feature/search   # hook creates a branch file from the current DB
+db-git url                     # absolute SQLite URL for this branch
+db-git run -- your-app-command  # passes that URL in DATABASE_URL
+
+db-git create review --from feature/search
+db-git reset feature/search
+db-git recover
+```
+
+SQLite support uses Python's built-in `sqlite3` library; it needs no database server
+or external client tools. Your application must understand a SQLite connection URL
+in `DATABASE_URL`. Relative `sqlite:///development.sqlite3` paths resolve against
+the primary checkout, including when commands run in another worktree. Absolute
+POSIX paths use four slashes, such as `sqlite:////home/me/project/dev.sqlite3`.
+Percent-encode reserved filename characters (`%20`, `%23`, `%3F`, `%25`). In-memory
+databases, URI query options, credentials, and nonlocal authorities are rejected.
+Missing seed files are reported rather than silently created. Keep the seed and its
+`-wal`, `-shm`, and `-journal` sidecars out of version control; initialization rejects
+a tracked seed because Git could replace it during checkout.
+
+The default branch uses the seed file. Other branches use files under the common
+Git directory's `db-git/sqlite/branches/`, shared across worktrees. The backup API
+copies a consistent view including committed WAL data, without copying or removing
+the source's sidecars. An exclusive writer may block the copy; SQLite operations
+never terminate application connections. `backup_timeout_ms` (default 5000, or
+`DB_GIT_BACKUP_TIMEOUT_MS`) bounds backup work and retries.
+
+**Reset and recovery select file generations.** Reset backs up the seed into a new
+file, then atomically updates the branch's recorded path. It preserves the previous
+file. Connections already using that file can continue using it; restart applications
+through `db-git run` after reset or rollback to select the intended generation.
+Avoid caching branch URLs across resets. Interrupted operations block further
+mutations and `run` until `recover --finish` or `recover --rollback` resolves them.
+Recovery also refuses to overwrite ownership changes made by a later operation.
+
+SQLite currently does **not** support shared-mode save/restore or automatic file
+deletion. `prune` removes stale ownership records but retains their files;
+`recover --discard` removes the resolved journal while retaining SQLite files.
+This avoids unlinking databases that an application may still have open. Stop all
+applications before manually removing files, retain the currently recorded files,
+and preserve files referenced by recovery journals. `doctor` checks SQLite integrity,
+missing files, ownership, and the count of retained generations. This retention
+policy can consume disk space; PostgreSQL cleanup behavior is unchanged.
 
 ## Git Worktrees
 
@@ -412,13 +465,14 @@ Supported configuration keys:
 | Key | Description | Default |
 | --- | --- | --- |
 | `database_url` | Database connection URL | required |
-| `mode` | `shared` or `per-branch` | `shared` |
+| `mode` | PostgreSQL: either mode; SQLite: `per-branch` | PostgreSQL: `shared`; SQLite: `per-branch` |
 | `default_branch` | Seed branch for per-branch mode | `main` |
-| `strategy` | `template` or `pgdump` | required |
-| `on_active_connections` | `terminate` or `fail` | `terminate` |
+| `strategy` | PostgreSQL: `template` or `pgdump`; SQLite: `backup` | required for PostgreSQL; `backup` for SQLite |
+| `on_active_connections` | PostgreSQL: `terminate` or `fail`; SQLite: `fail` | PostgreSQL: `terminate`; SQLite: `fail` |
 | `snapshot_dir` | Shared-mode snapshot metadata/dump directory | `db-git/snapshots` under Git’s common directory |
 | `max_snapshots` | Snapshot count kept by prune logic | `20` |
-| `force_terminate_timeout_ms` | Active connection termination timeout | `5000` |
+| `backup_timeout_ms` | SQLite backup deadline in milliseconds | `5000` |
+| `force_terminate_timeout_ms` | PostgreSQL connection termination timeout | `5000` |
 
 Configuration precedence for settings other than the seed URL:
 
@@ -507,11 +561,11 @@ to a collision.
 
 ### Recoverable operations
 
-Saves, restores, branch creation, resets, and pruning use a durable operation
-journal. Replacements are fully built before publication. Database replacements
-are switched with transactional renames; dump files and JSON metadata use staged
-writes. The previous copy is retained. Ordinary failures attempt automatic
-rollback; interrupted operations block further mutations until resolved.
+Database changes use a durable operation journal. Replacements are fully built
+before publication. PostgreSQL database replacements use transactional renames;
+dump files and JSON metadata use staged writes. SQLite publishes new branch files
+and updates ownership, retaining earlier generations. Ordinary failures attempt
+automatic rollback; interrupted operations block further mutations until resolved.
 
 Inspect recovery records (newest first):
 
@@ -529,8 +583,8 @@ db-git recover <operation-id> --rollback
 # Finish publishing a replacement that was fully built before interruption.
 db-git recover <operation-id> --finish
 
-# Permanently remove retained backups/staging data for a resolved operation.
-# The active target is kept.
+# PostgreSQL: remove retained backups/staging data; keep the active target.
+# SQLite: remove the resolved journal; keep every database file.
 db-git recover <operation-id> --discard
 ```
 
@@ -541,7 +595,8 @@ If later work changed a resource or its metadata, recovery refuses to overwrite 
 
 `db-git status` shows how many recovery records are retained. Backups consume
 local disk space or databases on the same PostgreSQL server until explicitly
-discarded; pruning alone does not free that retained storage. Keep the journals
+discarded. SQLite files remain until manually removed; pruning alone does not free
+retained storage. Keep the journals
 until their recovery resources have been resolved and discarded.
 
 Concurrent db-git writers are rejected with a retry message. Process locks protect

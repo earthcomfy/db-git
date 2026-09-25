@@ -9,7 +9,11 @@ from db_git.errors import ConfigError
 
 
 def parse_database_url(url: str) -> dict[str, str | int | None]:
-    """Parse PostgreSQL URLs with libpq, including its query options and escaping."""
+    """Parse a supported engine URL; preserve PostgreSQL options through libpq."""
+    if urlparse(url).scheme == "sqlite":
+        from db_git.backends.sqlite.urls import database_path
+
+        return {"dbname": str(database_path(url))}
     try:
         if urlparse(url).scheme not in {"postgres", "postgresql"}:
             raise ConfigError("Expected a postgres:// or postgresql:// URL.")
@@ -32,6 +36,12 @@ def parse_database_url(url: str) -> dict[str, str | int | None]:
 def with_database_name(url: str, dbname: str) -> str:
     """Replace the effective database while preserving connection options."""
     parsed = urlparse(url)
+    if parsed.scheme == "sqlite":
+        from pathlib import Path
+
+        from db_git.backends.sqlite.urls import database_url
+
+        return database_url(Path(dbname))
     # libpq query parameters override the URI path, so replace dbname there too.
     query = "&".join(
         f"{part.split('=', 1)[0]}={quote(dbname, safe='')}"

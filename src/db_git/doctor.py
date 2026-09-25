@@ -14,6 +14,7 @@ from typing import Literal
 import psycopg
 from psycopg.conninfo import make_conninfo
 
+from db_git.backends import get_backend
 from db_git.backends.postgresql.backend import PostgresqlBackend
 from db_git.backends.postgresql.connections import client_dsn
 from db_git.config import DbGitConfig, find_project_root, load_config
@@ -113,6 +114,16 @@ def diagnose(database_url: str | None = None) -> Report:
 
     try:
         config = load_config({"database_url": database_url}, project_root=root)
+        selected = get_backend(config.database_url)
+        if selected.engine == "sqlite":
+            from db_git.backends.sqlite.doctor import check
+
+            report.add(
+                "configuration", "ok", "Valid SQLite per-branch/backup configuration."
+            )
+            _check_storage(report, config, git_dir)
+            check(report, config, git_dir)
+            return report
         backend = PostgresqlBackend()
         params = backend.apply_url_defaults(parse_database_url(config.database_url))
         if "connect_timeout" in params:
@@ -128,7 +139,7 @@ def diagnose(database_url: str | None = None) -> Report:
         report.add(
             "configuration",
             "error",
-            "Configuration or PostgreSQL URL is invalid.",
+            "Configuration or database URL is invalid.",
             "Check .db-git.toml syntax, database_url (including a database name), "
             "mode, strategy, positive limits, and DB_GIT_* overrides; "
             "run db-git init if not configured.",

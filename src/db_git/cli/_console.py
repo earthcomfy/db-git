@@ -7,7 +7,7 @@ app = typer.Typer(
     name="db-git",
     help=(
         "Keep your database in sync with your git branches. "
-        "Currently supports PostgreSQL."
+        "Supports PostgreSQL and SQLite per-branch databases."
     ),
     rich_markup_mode="rich",
 )

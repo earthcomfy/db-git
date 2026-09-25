@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -15,7 +16,16 @@ if TYPE_CHECKING:
 _BACKEND_REGISTRY: dict[str, type[DatabaseBackend]] = {}
 _BUILTIN_BACKENDS: dict[str, str] = {
     "postgresql": "db_git.backends.postgresql.backend",
+    "sqlite": "db_git.backends.sqlite.backend",
 }
+
+
+@dataclass(frozen=True)
+class BackendCapabilities:
+    modes: frozenset[str]
+    strategies: frozenset[str]
+    can_terminate_connections: bool = True
+    automatic_file_cleanup: bool = True
 
 
 class DbCursor(Protocol):
@@ -114,12 +124,13 @@ class DatabaseBackend(Protocol):
 
     engine: str
     max_identifier_length: int
+    capabilities: BackendCapabilities
 
     def apply_url_defaults(
         self, params: dict[str, str | int | None]
     ) -> dict[str, str | int]: ...
 
-    def get_engine_version(self, url: str) -> int: ...
+    def get_engine_version(self, url: str) -> int | str: ...
 
     def detect_strategy(self, config: DbGitConfig) -> SnapshotStrategy: ...
 
@@ -174,6 +185,7 @@ def _try_import_backend(scheme: str) -> None:
 
 
 __all__ = [
+    "BackendCapabilities",
     "BranchDbManager",
     "DatabaseBackend",
     "SnapshotStrategy",

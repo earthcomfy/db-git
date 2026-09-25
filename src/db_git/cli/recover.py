@@ -44,7 +44,7 @@ def recover(
         bool,
         typer.Option(
             "--discard",
-            help="Permanently remove retained backups for a resolved operation.",
+            help="Discard a resolved journal and backups (SQLite files are retained).",
         ),
     ] = False,
     yes: Annotated[
@@ -74,6 +74,13 @@ def recover(
                 console.print(
                     f"{entry.id}  {entry.action}  {entry.phase}", markup=False
                 )
+                if entry.kind == "sqlite":
+                    console.print(
+                        f"  Generation: {entry.target}\n  Staged: {entry.stage}\n"
+                        f"  Previous ownership: {entry.before or '(none)'}",
+                        markup=False,
+                    )
+                    continue
                 console.print(
                     f"  Created: {entry.created_at}\n"
                     f"  Target: {entry.target}\n  Staged: {entry.stage}\n"
@@ -83,12 +90,33 @@ def recover(
             if records:
                 console.print(
                     "Use an ID with --finish, --rollback, or --discard. "
-                    "Backups are retained until discarded."
+                    "PostgreSQL backups are retained until discarded; "
+                    "SQLite files require manual cleanup."
                 )
             return
         if actions != 1:
             raise DbGitError("Choose exactly one of --finish, --rollback, or --discard")
         backend = get_backend(config.database_url)
+        if backend.engine == "sqlite":
+            from ._sqlite_recover import recover_operation
+
+            recover_operation(
+                config,
+                git_dir,
+                root,
+                operation,
+                "finish"
+                if finish_operation
+                else "rollback"
+                if rollback_operation
+                else "discard",
+                yes,
+            )
+            console.print(
+                "SQLite recovery action completed. Files retained; "
+                "restart applications after ownership changes."
+            )
+            return
         params = backend.apply_url_defaults(parse_database_url(config.database_url))
         with operation_scope(backend, params, root, recovering=True) as conn:
             records = operations(root)

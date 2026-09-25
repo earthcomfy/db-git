@@ -8,6 +8,7 @@ import psycopg
 from psycopg.conninfo import make_conninfo
 
 from db_git.backends import (
+    BackendCapabilities,
     BranchDbManager,
     DbConnection,
     SnapshotStrategy,
@@ -41,6 +42,10 @@ class PostgresqlBackend:
 
     engine = "postgresql"
     max_identifier_length = 63
+    capabilities = BackendCapabilities(
+        modes=frozenset({"shared", "per-branch"}),
+        strategies=frozenset({"template", "pgdump"}),
+    )
     _VALID_STRATEGIES: ClassVar[set[str]] = {"template", "pgdump"}
 
     def apply_url_defaults(

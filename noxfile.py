@@ -30,9 +30,9 @@ def _install(session: nox.Session) -> None:
 
 @nox.session(python=PYTHONS)
 def unit(session: nox.Session) -> None:
-    """Unit tests: no Docker."""
+    """Unit and SQLite workflow tests: no Docker."""
     _install(session)
-    session.run("pytest", "tests/unit", "-q", *session.posargs)
+    session.run("pytest", "tests/unit", "tests/sqlite", "-q", *session.posargs)
 
 
 @nox.session(python=PYTHONS)
