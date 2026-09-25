@@ -23,7 +23,13 @@ _local = threading.local()
 
 
 def server_identity(params: dict[str, str | int]) -> str:
-    identity = [str(params[k]) for k in ("host", "port", "dbname")]
+    identity = [str(params.get(k, "")) for k in ("host", "port", "dbname")]
+    endpoint = [
+        params.get("hostaddr"),
+        params.get("service") or os.environ.get("PGSERVICE"),
+    ]
+    if any(endpoint):
+        identity.extend(str(value or "") for value in endpoint)
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 

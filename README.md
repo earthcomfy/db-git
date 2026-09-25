@@ -26,6 +26,7 @@ local database aligned with the branch you are working on.
   - `pgdump`: portable snapshots using `pg_dump` and `pg_restore`
 - Manual `save`, `restore`, `create`, `reset`, `list`, `status`, `prune`, and `recover`
   commands
+- Read-only `doctor` diagnostics with actionable text and JSON reports
 - Staged replacements, retained recovery copies, and interrupted-operation recovery
 - Safe hook behavior: checkout is never blocked by db-git failures
 - Rich terminal output and local state stored under `.git/db-git/`
@@ -122,6 +123,8 @@ The `pgdump` strategy uses `pg_dump` and `pg_restore`.
 
 It is slower than `template`, but can be a better fit when template cloning is
 not available. It requires PostgreSQL client tools to be installed locally.
+Both strategies require `CREATEDB` for cloning and staged restores. Shared-mode
+replacement also requires ownership of the working database.
 
 ## Commands
 
@@ -239,6 +242,38 @@ You can also skip hook behavior for a single checkout:
 DB_GIT_SKIP=1 git checkout other-branch
 ```
 
+### Diagnose setup and connection problems
+
+```bash
+db-git doctor
+db-git doctor --json
+db-git doctor --json --strict
+```
+
+`doctor` checks configuration, the active Git hook (including `core.hooksPath`),
+disabled switching, local storage access, recovery journals, both the maintenance
+and configured database connections, role permissions, PostgreSQL client versions,
+and recorded databases/snapshots. It only reads files and database catalogs;
+it does not create, replace, delete, or terminate anything.
+
+Each finding has an ID, status (`ok`, `warning`, `error`, or `skipped`), message,
+and suggested remedy when needed. JSON includes `schema_version: 1`, `ok`,
+`exit_code`, and a `checks` array. Reports omit connection URLs, passwords, and
+raw driver errors. `--database-url` overrides the configured connection for the
+checks; otherwise normal file/environment precedence applies.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | No errors; warnings may still be present |
+| `1` | A diagnostic failed, or a warning was found with `--strict` |
+| `2` | Invalid configuration/URL or command-line usage |
+
+Local checks continue when the server is unreachable. Connections use a
+five-second timeout per connection attempt, and diagnostic queries use a
+five-second statement timeout. Permission checks inspect catalogs and source
+SELECT privileges; they do not prove that every extension or restored object
+will succeed. Inspect failures before enabling automatic switching.
+
 ## Configuration
 
 `db-git init` writes `.db-git.toml` at the repository root.
@@ -287,6 +322,41 @@ DB_GIT_FORCE_TERMINATE_TIMEOUT_MS
 ```
 
 `DB_GIT_DATABASE_URL` takes precedence over `DATABASE_URL`.
+
+### PostgreSQL connection options
+
+PostgreSQL URLs are parsed using libpq, preserving options such as `sslmode`,
+`sslrootcert`, `connect_timeout`, `application_name`, `options`, and `service`
+through maintenance connections and `pg_dump`/`pg_restore`. Unix socket hosts,
+IPv6, multiple hosts, and percent-encoded credentials/database names are accepted.
+Use PostgreSQL/libpq options; unknown options produce an error instead of being
+silently discarded.
+
+```toml
+database_url = "postgresql://dev@localhost/myapp?sslmode=require&connect_timeout=5"
+```
+
+`db-git url` percent-encodes branch database names and preserves connection options.
+If the original URL has a `dbname` query parameter, it is updated along with the
+path. Encode spaces as `%20`; libpq treats `+` literally.
+
+An explicit database name remains required. Maintenance operations use the
+`postgres` database with the same connection settings. Ordinary URLs retain the
+historical defaults (`postgres`, `localhost`, port `5432`) when neither the URL
+nor corresponding environment variables specify them. Service URLs let libpq
+resolve those settings from the service file. When using services, unset inherited
+`PGHOST`, `PGHOSTADDR`, and `PGPORT`: psycopg may resolve these before reading the
+service file; `doctor` warns about this combination.
+
+Client commands pass ordinary URL passwords through `PGPASSWORD`, keeping them
+out of process arguments. For `sslpassword`, or a password used with `service`,
+put credentials in a protected libpq service file and reference `?service=NAME`.
+Inline credentials in these combinations are rejected for client operations,
+because a service password takes precedence over `PGPASSWORD`.
+
+Relative `snapshot_dir` paths resolve from the repository root, including when
+commands run in a subdirectory. Malformed TOML is an error, and snapshot limits
+and termination timeouts must be positive.
 
 ### Existing databases and snapshots
 

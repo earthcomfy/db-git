@@ -112,7 +112,9 @@ def test_drop_refuses_unowned_or_ambiguous_database(tmp_path, owned):
 
     backend = Mock()
     backend.apply_url_defaults.return_value = {"dbname": "app"}
-    manager = PostgresBranchDbManager(backend, DbGitConfig())
+    manager = PostgresBranchDbManager(
+        backend, DbGitConfig(database_url="postgresql:///app")
+    )
     if owned:
         for branch in ["first", "second"]:
             record_branch_db(tmp_path, branch, "app__shared", "main")

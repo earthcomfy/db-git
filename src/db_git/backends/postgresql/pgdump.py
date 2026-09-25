@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from psycopg import sql
 
 from db_git.backends import DatabaseBackend
+from db_git.backends.postgresql.connections import client_dsn
 from db_git.backends.postgresql.operations import (
     PostgresResources,
     operation_scope,
@@ -191,12 +192,6 @@ def _build_pg_dump_cmd(
         "-Fc",
         "--no-owner",
         "--no-privileges",
-        "-h",
-        str(params["host"]),
-        "-p",
-        str(params["port"]),
-        "-U",
-        str(params["user"]),
         "-f",
         dump_path,
     ]
@@ -206,7 +201,7 @@ def _build_pg_dump_cmd(
     else:
         cmd.extend(["-Z", "1"])
 
-    cmd.append(str(params["dbname"]))
+    cmd.extend(["-d", client_dsn(params)])
     return cmd
 
 
@@ -223,13 +218,7 @@ def _build_pg_restore_cmd(
         "--exit-on-error",
         "--no-owner",
         "--no-privileges",
-        "-h",
-        str(params["host"]),
-        "-p",
-        str(params["port"]),
-        "-U",
-        str(params["user"]),
         "-d",
-        str(params["dbname"]),
+        client_dsn(params),
         dump_path,
     ]

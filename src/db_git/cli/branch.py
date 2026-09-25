@@ -19,7 +19,8 @@ from ._console import app, console
 def create(
     branch: Annotated[str | None, typer.Argument()] = None,
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
 ) -> None:
     """
@@ -104,7 +105,8 @@ def create(
 def reset(
     branch: Annotated[str | None, typer.Argument()] = None,
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
 ) -> None:
     """

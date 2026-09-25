@@ -31,7 +31,8 @@ from ._prompts import confirm_prune
 @app.command("list")
 def list_cmd(
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
 ) -> None:
     """
@@ -83,7 +84,8 @@ def prune(
         bool, typer.Option("--yes", "-y", help="Skip confirmation prompt.")
     ] = False,
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
 ) -> None:
     """
@@ -154,7 +156,8 @@ def prune(
 @app.command()
 def status(
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
 ) -> None:
     """
@@ -208,7 +211,8 @@ def status(
 def url(
     branch: Annotated[str | None, typer.Argument()] = None,
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
 ) -> None:
     """

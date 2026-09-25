@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 
 def format_age(iso_timestamp: str) -> str:
@@ -46,11 +46,18 @@ def mask_url(url: str) -> str:
     """
     Replace password in database URL with ****.
     """
-    parsed = urlparse(url)
-    if parsed.password:
-        netloc = f"{parsed.username}:****@{parsed.hostname}"
-        if parsed.port:
-            netloc += f":{parsed.port}"
-        masked = parsed._replace(netloc=netloc)
-        return urlunparse(masked)
-    return url
+    try:
+        parsed = urlparse(url)
+        netloc = parsed.netloc
+        if parsed.password is not None:
+            userinfo, host = netloc.rsplit("@", 1)
+            netloc = userinfo.split(":", 1)[0] + ":****@" + host
+        query = "&".join(
+            f"{part.split('=', 1)[0]}=****"
+            if unquote(part.split("=", 1)[0]) in {"password", "sslpassword"}
+            else part
+            for part in parsed.query.split("&")
+        )
+        return urlunparse(parsed._replace(netloc=netloc, query=query))
+    except ValueError:
+        return "(invalid database URL)"

@@ -11,7 +11,7 @@ import psycopg
 from psycopg import sql
 
 from db_git.backends import DatabaseBackend, DbConnection
-from db_git.backends.postgresql.connections import handle_active_connections
+from db_git.backends.postgresql.connections import client_dsn, handle_active_connections
 from db_git.backends.postgresql.operations import (
     PostgresResources,
     operation_scope,
@@ -155,19 +155,18 @@ def _create_via_pgdump(
     pg_dump, pg_restore = shutil.which("pg_dump"), shutil.which("pg_restore")
     if not pg_dump or not pg_restore:
         raise ToolNotFoundError("pg_dump and pg_restore must be installed in PATH.")
-    common = [
-        "-h",
-        str(params["host"]),
-        "-p",
-        str(params["port"]),
-        "-U",
-        str(params["user"]),
-    ]
     env = backend.build_subprocess_env(params)
     # An anonymous temporary file avoids pipe deadlocks and is removed on process exit.
     with tempfile.TemporaryFile() as dump:
         result = subprocess.run(
-            [pg_dump, "-Fc", "--no-owner", "--no-privileges", *common, source],
+            [
+                pg_dump,
+                "-Fc",
+                "--no-owner",
+                "--no-privileges",
+                "-d",
+                client_dsn(params, source),
+            ],
             stdout=dump,
             stderr=subprocess.PIPE,
             text=True,
@@ -188,9 +187,8 @@ def _create_via_pgdump(
                 "--exit-on-error",
                 "--no-owner",
                 "--no-privileges",
-                *common,
                 "-d",
-                target,
+                client_dsn(params, target),
             ],
             stdin=dump,
             capture_output=True,

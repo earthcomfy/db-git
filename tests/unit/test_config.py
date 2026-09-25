@@ -205,3 +205,27 @@ class TestConfig:
 
         assert changed is False
         assert (tmp_path / ".gitignore").read_text().count(".db-git.toml") == 1
+
+
+def test_relative_snapshot_directory_is_anchored_at_project_root(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    write_config(
+        tmp_path,
+        {
+            "database_url": "postgresql:///app",
+            "strategy": "template",
+            "snapshot_dir": "snapshots",
+        },
+    )
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+    assert load_config().snapshot_dir == tmp_path / "snapshots"
+
+
+def test_malformed_toml_does_not_silently_use_environment(tmp_path, monkeypatch):
+    (tmp_path / ".db-git.toml").write_text('database_url = "broken')
+    monkeypatch.setenv("DATABASE_URL", "postgresql:///other")
+    monkeypatch.setenv("DB_GIT_STRATEGY", "template")
+    with pytest.raises(ConfigError, match="TOML syntax"):
+        load_config(project_root=tmp_path)

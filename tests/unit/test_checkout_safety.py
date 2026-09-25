@@ -29,7 +29,7 @@ def checkout(monkeypatch, tmp_path):
 def test_failed_save_preserves_working_database_and_disables_hook(checkout):
     strategy, git_dir = checkout
     strategy.save.side_effect = RuntimeError("disk full")
-    config = DbGitConfig(strategy="pgdump")
+    config = DbGitConfig(database_url="postgresql:///app", strategy="pgdump")
 
     handle_post_checkout("a" * 40, "1", config)
 
@@ -42,7 +42,7 @@ def test_failed_save_preserves_working_database_and_disables_hook(checkout):
 
 def test_successful_save_allows_restore(checkout):
     strategy, git_dir = checkout
-    config = DbGitConfig(strategy="pgdump")
+    config = DbGitConfig(database_url="postgresql:///app", strategy="pgdump")
     handle_post_checkout("a" * 40, "1", config)
     strategy.save.assert_called_once()
     strategy.restore.assert_called_once()
@@ -52,7 +52,9 @@ def test_successful_save_allows_restore(checkout):
 def test_failed_restore_disables_future_automatic_saves(checkout):
     strategy, git_dir = checkout
     strategy.restore.side_effect = RuntimeError("restore failed")
-    handle_post_checkout("a" * 40, "1", DbGitConfig(strategy="pgdump"))
+    handle_post_checkout(
+        "a" * 40, "1", DbGitConfig(database_url="postgresql:///app", strategy="pgdump")
+    )
     assert (git_dir / "db-git" / "disabled").exists()
 
 
@@ -76,7 +78,8 @@ git.get_backend = lambda _: Mock()
 git.operation_scope = lambda *args: nullcontext()
 git._try_save = lambda *args: True
 git.has_snapshot = lambda *args: os._exit(77)
-git.handle_post_checkout('a' * 40, '1', DbGitConfig(strategy='template'))
+config = DbGitConfig(database_url="postgresql:///app", strategy="template")
+git.handle_post_checkout("a" * 40, "1", config)
 """
     result = subprocess.run(
         [sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True

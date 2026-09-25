@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import psycopg
+from psycopg.conninfo import make_conninfo
 
 from db_git.backends import (
     BranchDbManager,
@@ -52,12 +53,19 @@ class PostgresqlBackend:
         if not dbname:
             raise ConfigError("Database name is required in the connection URL.")
 
-        port = params.get("port")
+        service = params.get("service") or os.environ.get("PGSERVICE")
+        defaults: dict[str, str | int] = (
+            {} if service else {"user": "postgres", "host": "localhost", "port": 5432}
+        )
+        if params.get("hostaddr"):
+            defaults.pop("host", None)
+        env_names = {"user": "PGUSER", "host": "PGHOST", "port": "PGPORT"}
+        for key, env_name in env_names.items():
+            if not service and env_name in os.environ:
+                defaults[key] = os.environ[env_name]
         return {
-            "user": params.get("user") or "postgres",
-            "password": params.get("password") or "",
-            "host": params.get("host") or "localhost",
-            "port": port if port is not None else 5432,
+            **defaults,
+            **{key: value for key, value in params.items() if value is not None},
             "dbname": dbname,
         }
 
@@ -85,17 +93,13 @@ class PostgresqlBackend:
         """
         Connect to the 'postgres' maintenance database for admin operations.
         """
-        conninfo = (
-            f"host={params['host']} port={params['port']} "
-            f"user={params['user']} dbname=postgres"
-        )
-        password = str(params.get("password", ""))
+        options = {**params, "dbname": "postgres"}
         try:
-            return psycopg.connect(conninfo, autocommit=True, password=password or None)
+            return psycopg.connect(make_conninfo("", **options), autocommit=True)
         except psycopg.Error as e:
             raise DatabaseError(
-                f"Could not connect to PostgreSQL at "
-                f"{params['host']}:{params['port']}: {e}"
+                "Could not connect to the PostgreSQL maintenance database. "
+                "Check credentials, connectivity, SSL options, and CONNECT on postgres."
             ) from e
 
     def build_subprocess_env(self, params: dict[str, str | int]) -> dict[str, str]:

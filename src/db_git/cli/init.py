@@ -48,7 +48,8 @@ class ConnectionPolicyChoice(StrEnum):
 @app.command()
 def init(
     database_url: Annotated[
-        str | None, typer.Option("--database-url", envvar="DATABASE_URL")
+        str | None,
+        typer.Option("--database-url", envvar=["DB_GIT_DATABASE_URL", "DATABASE_URL"]),
     ] = None,
     mode: Annotated[ModeChoice | None, typer.Option("--mode")] = None,
     strategy: Annotated[StrategyChoice | None, typer.Option("--strategy")] = None,
@@ -107,12 +108,14 @@ def init(
             )
             raise typer.Exit(1) from e
 
-        console.print(
-            f"  Detected: [cyan]PostgreSQL {version}[/] "
-            f"at {params['host']}:{params['port']}"
+        location = str(
+            params.get("host") or params.get("hostaddr") or "service settings"
         )
+        if params.get("port"):
+            location += f":{params['port']}"
+        console.print(f"  Detected: [cyan]PostgreSQL {version}[/] at {location}")
         console.print(f"  Database:  [cyan]{params['dbname']}[/]")
-        console.print(f"  User:      [cyan]{params['user']}[/]")
+        console.print(f"  User:      [cyan]{params.get('user', 'service settings')}[/]")
 
         result = backend.check_permissions(resolved_url)
         assert isinstance(result, PgPermissions)
@@ -166,16 +169,11 @@ def init(
             default=strategy_default,
         )
 
-        if (
-            resolved_strategy == "template"
-            and permissions
-            and not permissions.can_createdb
-        ):
+        if permissions and not (permissions.can_createdb or permissions.is_superuser):
             console.print(
                 "[yellow]Warning:[/] Your user lacks CREATEDB privilege. "
-                "Template strategy will fail.\n"
+                "Cloning and staged restores require CREATEDB with either strategy.\n"
                 "  Grant it with: ALTER ROLE {user} CREATEDB;\n"
-                "  Or switch to pgdump strategy.\n"
             )
 
         policy_labels = {

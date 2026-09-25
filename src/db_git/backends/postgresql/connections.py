@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import time
 from typing import TYPE_CHECKING, NamedTuple
 
 from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
 from db_git.backends import DbConnection
-from db_git.errors import ActiveConnectionsError, TerminationTimeout
+from db_git.errors import ActiveConnectionsError, ConfigError, TerminationTimeout
 
 if TYPE_CHECKING:
     from db_git.config import DbGitConfig
@@ -80,3 +82,23 @@ def _terminate_all(conn: DbConnection, dbname: str, timeout_ms: int = 5000) -> N
             conn.execute(
                 sql.SQL("ALTER DATABASE {} ALLOW_CONNECTIONS true").format(db_ident)
             )
+
+
+def client_dsn(params: dict[str, str | int], dbname: str | None = None) -> str:
+    """Pass libpq options to client tools without putting the password in argv."""
+    if params.get("sslpassword"):
+        raise ConfigError(
+            "For client tools, put sslpassword in a libpq service file and use "
+            "?service=NAME instead of embedding it in the URL."
+        )
+    if params.get("password") and (
+        params.get("service") or os.environ.get("PGSERVICE")
+    ):
+        raise ConfigError(
+            "For client tools, keep the password in the libpq service file when "
+            "using service=NAME. A service password overrides PGPASSWORD."
+        )
+    options = {key: value for key, value in params.items() if key != "password"}
+    if dbname is not None:
+        options["dbname"] = dbname
+    return make_conninfo("", **options)

@@ -32,7 +32,7 @@ _CONFIG_COMMENTS: dict[str, str] = {
         "Snapshot strategy for cloning databases.\n"
         '# "template": uses CREATE DATABASE ... TEMPLATE '
         "(fast, requires CREATEDB privilege)\n"
-        '# "pgdump": uses pg_dump/pg_restore (slower, works without special privileges)'
+        '# "pgdump": uses pg_dump/pg_restore (slower, restore/clone requires CREATEDB)'
     ),
     "on_active_connections": (
         "What to do when active connections block a database operation.\n"
@@ -83,6 +83,8 @@ def load_config(
                 merged[key] = value
 
     config = _build_config(merged)
+    if root and not config.snapshot_dir.is_absolute():
+        config.snapshot_dir = root / config.snapshot_dir
     _validate_config(config)
     return config
 
@@ -102,7 +104,7 @@ def load_dotfile_config(root: Path) -> dict[str, object]:
     """
     Read raw key/value pairs from .db-git.toml.
 
-    Returns {} if absent or unparseable.
+    Returns {} if absent; refuses malformed or unreadable configuration.
     """
     dotfile = root / ".db-git.toml"
     if not dotfile.exists():
@@ -111,8 +113,10 @@ def load_dotfile_config(root: Path) -> dict[str, object]:
         with open(dotfile, "rb") as f:
             data = tomllib.load(f)
         return dict(data)
-    except (tomllib.TOMLDecodeError, OSError):
-        return {}
+    except (tomllib.TOMLDecodeError, OSError, UnicodeError) as e:
+        raise ConfigError(
+            "Cannot read .db-git.toml. Check TOML syntax and permissions."
+        ) from e
 
 
 def _load_env_vars() -> dict[str, object]:
@@ -190,6 +194,11 @@ def _validate_config(config: DbGitConfig) -> None:
     if not config.database_url:
         raise ConfigError(
             "No database URL configured. Run 'db-git init' or set DATABASE_URL."
+        )
+
+    if config.max_snapshots < 1 or config.force_terminate_timeout_ms < 1:
+        raise ConfigError(
+            "max_snapshots and force_terminate_timeout_ms must be positive."
         )
 
     if config.mode not in VALID_MODES:
