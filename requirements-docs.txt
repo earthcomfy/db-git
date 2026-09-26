@@ -1,0 +1,3 @@
+# Documentation tools are separate from db-git's runtime and application lockfile.
+mkdocs==1.6.1
+mkdocs-material==9.7.7

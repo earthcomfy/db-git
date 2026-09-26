@@ -1,0 +1,87 @@
+site_name: db-git
+site_url: https://earthcomfy.github.io/db-git/
+site_description: Keep your database in sync with your Git branches.
+repo_name: earthcomfy/db-git
+repo_url: https://github.com/earthcomfy/db-git
+edit_uri: edit/main/docs/
+strict: true
+
+theme:
+  name: material
+  font: false
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+
+# The local planning file must never enter the published site.
+exclude_docs: |
+  /ROADMAP.md
+
+validation:
+  nav:
+    omitted_files: warn
+  links:
+    not_found: warn
+    unrecognized_links: warn
+    anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Your first database branch: getting-started/quickstart.md
+      - Choose a mode: concepts/modes.md
+  - Databases:
+      - PostgreSQL: databases/postgresql.md
+      - MySQL: databases/mysql.md
+      - SQLite: databases/sqlite.md
+  - Guides:
+      - Applications and migrations: guides/applications.md
+      - Git worktrees: guides/worktrees.md
+      - Checkpoint history: guides/checkpoints.md
+      - Recovery: guides/recovery.md
+      - Upgrading: guides/upgrading.md
+  - Reference:
+      - Commands: reference/commands.md
+      - Configuration: reference/configuration.md
+      - Troubleshooting: troubleshooting.md
+  - Contributing:
+      - Development: contributing/development.md
+      - Documentation: contributing/documentation.md
