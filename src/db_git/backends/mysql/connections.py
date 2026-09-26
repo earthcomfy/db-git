@@ -129,9 +129,13 @@ def check_clients() -> None:
 
 def subprocess_env() -> dict[str, str]:
     # Option files provide all connection settings; inherited MYSQL_PWD must not win.
-    return {
+    env = {
         key: value for key, value in os.environ.items() if not key.startswith("MYSQL_")
     }
+    # MySQL 8.0 clients lack --no-login-paths. Redirect the login file to the
+    # null device so saved login paths cannot override our private option file.
+    env["MYSQL_TEST_LOGIN_FILE"] = os.devnull
+    return env
 
 
 @contextmanager
@@ -172,4 +176,4 @@ def client_options(params: dict[str, str | int]) -> Iterator[list[str]]:
             # mysqldump does not implement connect-timeout; keep it out of [client].
             file.write("[mysql]\n")
             file.write(f"connect-timeout={int(params.get('connect_timeout', 5))}\n")
-        yield [f"--defaults-file={path}", "--no-login-paths"]
+        yield [f"--defaults-file={path}"]

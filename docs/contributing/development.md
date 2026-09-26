@@ -32,4 +32,36 @@ Run the full nox suite:
 nox
 ```
 
+## Run the CI matrix locally
+
+To catch differences between macOS tools and the Linux CI environment, use the
+local runner from the repository root with Docker running:
+
+```bash
+python3 scripts/ci/local.py
+```
+
+It builds an Ubuntu 24.04 image, includes uncommitted source changes, and runs
+the same nox sessions for Python 3.12/3.13, PostgreSQL 13–17, and MySQL 8.0/8.4.
+PostgreSQL sessions select their matching client binaries; MySQL uses Ubuntu's
+Oracle MySQL 8.0 clients. The checkout and its virtual environments stay untouched.
+Logs and a JSON result summary are written to the temporary directory printed
+by the runner. The command exits nonzero when a session fails.
+
+The default is one job at a time with an x86-64 Linux test runner. GitHub gives
+each matrix job its own machine; local jobs share Docker's CPU and memory with
+your other containers. On Apple Silicon, emulation adds overhead, and concurrent
+database suites can encounter transient connection failures. Select a specific
+session, or increase concurrency when your machine has sufficient resources:
+
+```bash
+python3 scripts/ci/local.py --jobs 4
+python3 scripts/ci/local.py --session "integration-3.12(pg_image='postgres:15')"
+```
+
+The runner uses the local Docker socket to create disposable test databases.
+It validates test jobs, not GitHub authentication, caching, Pages deployment,
+or PyPI publication. Database image architecture follows the Docker daemon;
+the hosted runner's exact package patch versions may also differ over time.
+
 See [documentation development](documentation.md) to preview and publish the site.

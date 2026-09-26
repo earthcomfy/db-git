@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+from pathlib import Path
 
 import nox
 
@@ -43,6 +45,14 @@ def integration(session: nox.Session, pg_image: str) -> None:
         session.skip("docker not available")
     _install(session)
     session.env["DB_GIT_TEST_PG_IMAGE"] = pg_image
+    # Debian/Ubuntu's generic pg_wrapper can select a newer installed client.
+    # Use the matrix version directly when its versioned binaries are available.
+    client_dir = Path("/usr/lib/postgresql") / pg_image.split(":", 1)[1] / "bin"
+    if client_dir.is_dir():
+        session.env["PATH"] = f"{client_dir}{os.pathsep}{os.environ['PATH']}"
+    for tool in ("pg_dump", "pg_restore"):
+        executable = str(client_dir / tool) if client_dir.is_dir() else tool
+        session.run(executable, "--version", external=True)
     session.run(
         "pytest",
         "tests/integration",
@@ -76,4 +86,6 @@ def mysql(session: nox.Session, mysql_image: str) -> None:
     _install(session)
     session.install("PyMySQL[rsa]>=1.1.1")
     session.env["DB_GIT_TEST_MYSQL_IMAGE"] = mysql_image
+    session.run("mysql", "--version", external=True)
+    session.run("mysqldump", "--version", external=True)
     session.run("pytest", "tests/mysql", "-q", *session.posargs)

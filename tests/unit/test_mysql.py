@@ -99,6 +99,7 @@ def test_generation_names_do_not_collide_after_sanitizing_or_case_folding():
 
 def test_option_file_private_escaped_and_removed(monkeypatch):
     monkeypatch.setenv("MYSQL_PWD", "inherited-secret")
+    monkeypatch.setenv("MYSQL_TEST_LOGIN_FILE", "/tmp/inherited-login.cnf")
     params = {
         "host": "localhost",
         "port": 3306,
@@ -113,7 +114,8 @@ def test_option_file_private_escaped_and_removed(monkeypatch):
         contents = path.read_text()
         assert "\\n#comment" in contents
         assert 'password="secret\\"\\\\\\n#comment"' in contents
-        assert args[1] == "--no-login-paths"
+        assert len(args) == 1
+        assert subprocess_env()["MYSQL_TEST_LOGIN_FILE"] == os.devnull
         assert "MYSQL_PWD" not in subprocess_env()
     assert not path.exists()
 
