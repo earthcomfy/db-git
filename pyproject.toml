@@ -70,7 +70,15 @@ packages = ["src/db_git"]
 
 [tool.semantic_release]
 allow_zero_version = true
-build_command = "python -m pip install build && python -m build --sdist --wheel ."
+# The release action runs in Docker; install uv there, then refresh the root
+# package's lock entry after the version bump and include it in the release commit.
+build_command = """
+python -m pip install 'uv==0.12.19' build &&
+uv lock --upgrade-package db-git &&
+uv lock --check &&
+python -m build --sdist --wheel .
+"""
+assets = ["uv.lock"]
 commit_message = "chore: release v{version}"
 commit_parser = "conventional"
 version_toml = ["pyproject.toml:project.version"]
